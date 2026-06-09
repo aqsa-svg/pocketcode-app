@@ -15,15 +15,32 @@
  */
 
 const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8080;
+const VIEWER_FILE = path.join(__dirname, "..", "web", "index.html");
 
-// A real HTTP server so hosts like Render can health-check the service
-// (and so you can open the relay URL in a browser to confirm it's alive).
+// A real HTTP server that (a) serves the viewer web app, and (b) answers a
+// health check. WebSocket upgrades are handled separately by `wss` below,
+// so normal page loads and the live connection share one URL/port.
 const httpServer = http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("PocketCode relay is running ✓\n");
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("ok");
+    return;
+  }
+  // Serve the viewer page for any other path.
+  fs.readFile(VIEWER_FILE, (err, data) => {
+    if (err) {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("PocketCode relay is running ✓\n");
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(data);
+  });
 });
 
 // Attach the WebSocket server to that same HTTP server.

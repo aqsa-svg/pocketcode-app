@@ -61,7 +61,7 @@
   <p>Start the CLI on your computer (<span class="mono">npm run host</span>), then enter the room code it printed.</p>
   <div class="field">
     <label>Relay URL</label>
-    <input id="relayUrl" class="mono" value="ws://localhost:8080" />
+    <input id="relayUrl" class="mono" />
   </div>
   <div class="field">
     <label>Room code</label>
@@ -81,7 +81,16 @@
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   if (params.get("room")) $("roomCode").value = params.get("room");
-  if (params.get("relay")) $("relayUrl").value = params.get("relay");
+
+  // Default the relay URL smartly:
+  // - served over http/https (e.g. from the Render relay) -> same host, ws/wss
+  // - opened as a local file -> localhost
+  function defaultRelay() {
+    if (location.protocol === "https:") return "wss://" + location.host;
+    if (location.protocol === "http:") return "ws://" + location.host;
+    return "ws://localhost:8080";
+  }
+  $("relayUrl").value = params.get("relay") || defaultRelay();
 
   let ws = null;
   let typingEl = null;

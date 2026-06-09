@@ -7,7 +7,7 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node relay/server.js
-    healthCheckPath: /
+    healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
         value: "20"

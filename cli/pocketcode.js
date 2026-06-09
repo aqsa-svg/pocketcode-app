@@ -18,9 +18,17 @@ const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const crypto = require("crypto");
 
-const RELAY_URL = process.env.RELAY_URL || "ws://localhost:8080";
+// Defaults to your deployed cloud relay so phones can reach it from anywhere.
+// Override for local testing:  RELAY_URL=ws://localhost:8080 npm run host
+const RELAY_URL = process.env.RELAY_URL || "wss://pocketcode-relay.onrender.com";
 const ROOM = process.env.ROOM || crypto.randomBytes(3).toString("hex"); // 6-char code
-const VIEWER_HINT = process.env.VIEWER_URL || "web/index.html (open in your browser)";
+// Where to open the viewer. When using the cloud relay it serves the viewer
+// itself, so just open the relay URL in a browser / on your phone.
+const VIEWER_HINT =
+  process.env.VIEWER_URL ||
+  (RELAY_URL.startsWith("ws")
+    ? RELAY_URL.replace(/^ws/, "http")
+    : "web/index.html");
 
 let sessionId = null; // Claude Code session id, for conversation continuity
 let busy = false; // don't run two Claude turns at once
