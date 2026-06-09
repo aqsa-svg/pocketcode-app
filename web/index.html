@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PocketCode — Viewer</title>
+<style>
+  :root{--bg:#07080c;--panel:#11131c;--border:#1d2030;--text:#e8eaf2;--muted:#8a8fa3;--accent:#7c5cff;--green:#3ddc84;--red:#ff6b6b;--amber:#febc2e;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;}
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
+  header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel);}
+  .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--green));display:grid;place-items:center;font-size:14px;}
+  header .title{font-weight:700;font-size:15px;}
+  header .conn{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+  header .conn .dot{width:8px;height:8px;border-radius:50%;background:var(--red);}
+  header .conn.online .dot{background:var(--green);box-shadow:0 0 8px var(--green);}
+
+  /* connect panel */
+  .connect{margin:auto;max-width:380px;width:100%;padding:24px;}
+  .connect h2{font-size:20px;margin-bottom:6px;}
+  .connect p{color:var(--muted);font-size:13.5px;margin-bottom:20px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  .field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-size:14px;outline:none;}
+  .field input:focus{border-color:var(--accent);}
+  .btn{width:100%;background:linear-gradient(135deg,var(--accent),#9d6bff);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;}
+  .btn:hover{opacity:.92;}
+
+  /* chat */
+  #chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
+  .row{display:flex;flex-direction:column;}
+  .msg{max-width:88%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+  .user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
+  .ai{align-self:flex-start;background:var(--panel);border:1px solid var(--border);border-bottom-left-radius:4px;}
+  .tool{align-self:flex-start;background:#0d1410;border:1px solid #1c3a28;color:var(--green);font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+  .result{align-self:flex-start;background:#0d1018;border:1px solid var(--border);color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:12px;}
+  .sys{align-self:center;color:var(--muted);font-size:12px;}
+  .err{align-self:flex-start;background:#1a0d10;border:1px solid #3a1c1c;color:var(--red);font-size:13px;}
+
+  /* input bar */
+  .inputbar{display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
+  .inputbar input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none;}
+  .inputbar input:focus{border-color:var(--accent);}
+  .inputbar button{background:linear-gradient(135deg,var(--accent),#9d6bff);color:#fff;border:none;border-radius:12px;padding:0 20px;font-weight:600;cursor:pointer;font-size:14px;}
+  .inputbar button:disabled{opacity:.45;cursor:not-allowed;}
+  .hidden{display:none !important;}
+  .typing{align-self:flex-start;color:var(--muted);font-size:13px;font-style:italic;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">⬡</div>
+  <div class="title">PocketCode <span class="mono" style="color:var(--muted);font-weight:400;font-size:12px;" id="roomLabel"></span></div>
+  <div class="conn" id="conn"><span class="dot"></span><span id="connText">offline</span></div>
+</header>
+
+<!-- connect panel -->
+<div class="connect" id="connectPanel">
+  <h2>Connect to a session</h2>
+  <p>Start the CLI on your computer (<span class="mono">npm run host</span>), then enter the room code it printed.</p>
+  <div class="field">
+    <label>Relay URL</label>
+    <input id="relayUrl" class="mono" value="ws://localhost:8080" />
+  </div>
+  <div class="field">
+    <label>Room code</label>
+    <input id="roomCode" class="mono" placeholder="e.g. a3f9c1" autocomplete="off" />
+  </div>
+  <button class="btn" id="connectBtn">Connect →</button>
+</div>
+
+<!-- chat (hidden until connected) -->
+<div id="chat" class="hidden"></div>
+<div class="inputbar hidden" id="inputbar">
+  <input id="promptInput" placeholder="Ask Claude Code anything…" autocomplete="off" />
+  <button id="sendBtn">Send</button>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  if (params.get("room")) $("roomCode").value = params.get("room");
+  if (params.get("relay")) $("relayUrl").value = params.get("relay");
+
+  let ws = null;
+  let typingEl = null;
+
+  function setConn(online, text){
+    $("conn").classList.toggle("online", online);
+    $("connText").textContent = text;
+  }
+  function addMsg(cls, text){
+    const el = document.createElement("div");
+    el.className = "msg " + cls;
+    el.textContent = text;
+    $("chat").appendChild(el);
+    $("chat").scrollTop = $("chat").scrollHeight;
+    return el;
+  }
+  function clearTyping(){ if(typingEl){ typingEl.remove(); typingEl=null; } }
+  function showTyping(){ clearTyping(); typingEl=document.createElement("div"); typingEl.className="typing"; typingEl.textContent="Claude is working…"; $("chat").appendChild(typingEl); $("chat").scrollTop=$("chat").scrollHeight; }
+
+  function setBusy(b){
+    $("sendBtn").disabled = b;
+    $("promptInput").disabled = b;
+    if (b) showTyping(); else clearTyping();
+  }
+
+  function connect(){
+    const url = $("relayUrl").value.trim();
+    const room = $("roomCode").value.trim();
+    if (!room) return alert("Enter the room code from the CLI.");
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type:"join", room, role:"viewer" }));
+      setConn(true, "connecting…");
+      $("connectPanel").classList.add("hidden");
+      $("chat").classList.remove("hidden");
+      $("inputbar").classList.remove("hidden");
+      $("roomLabel").textContent = "· room " + room;
+      $("promptInput").focus();
+    };
+    ws.onclose = () => setConn(false, "disconnected");
+    ws.onerror = () => setConn(false, "error — is the relay running?");
+    ws.onmessage = (e) => {
+      let msg; try { msg = JSON.parse(e.data); } catch { return; }
+      handle(msg);
+    };
+  }
+
+  function handle(msg){
+    if (msg.type === "joined"){ setConn(true, "online"); return; }
+    if (msg.type === "status"){
+      setConn(msg.hostOnline, msg.hostOnline ? "online · CLI connected" : "waiting for CLI…");
+      return;
+    }
+    if (msg.type !== "event") return;
+    render(msg.event);
+  }
+
+  // Render one event from Claude Code (or a custom CLI event).
+  function render(evt){
+    if (!evt || !evt.type) return;
+    switch (evt.type){
+      case "user_prompt":
+        addMsg("user", evt.text); setBusy(true); break;
+
+      case "system": // init
+        if (evt.subtype === "init")
+          addMsg("sys", `session started · ${evt.model || "claude"}`);
+        break;
+
+      case "assistant": {
+        const content = (evt.message && evt.message.content) || [];
+        for (const block of content){
+          if (block.type === "text" && block.text.trim())
+            addMsg("ai", block.text);
+          else if (block.type === "tool_use")
+            addMsg("tool", `🔧 ${block.name}  ${summarize(block.input)}`);
+        }
+        break;
+      }
+
+      case "user": { // tool results
+        const content = (evt.message && evt.message.content) || [];
+        for (const block of content){
+          if (block.type === "tool_result"){
+            const txt = typeof block.content === "string"
+              ? block.content
+              : (Array.isArray(block.content) ? block.content.map(c=>c.text||"").join("") : "");
+            if (txt.trim()) addMsg("result", "↳ " + truncate(txt, 400));
+          }
+        }
+        break;
+      }
+
+      case "result":
+        if (evt.total_cost_usd != null)
+          addMsg("sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`);
+        break;
+
+      case "turn_complete": setBusy(false); break;
+      case "busy": addMsg("sys", "CLI is busy with another prompt — try again in a sec."); setBusy(false); break;
+      case "stderr": /* usually noise; ignore in MVP */ break;
+      case "error": addMsg("err", evt.text); setBusy(false); break;
+    }
+  }
+
+  function summarize(input){
+    if (!input) return "";
+    const s = JSON.stringify(input);
+    return truncate(s, 80);
+  }
+  function truncate(s, n){ return s.length > n ? s.slice(0, n) + "…" : s; }
+
+  function send(){
+    const text = $("promptInput").value.trim();
+    if (!text || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type:"prompt", text }));
+    $("promptInput").value = "";
+  }
+
+  $("connectBtn").onclick = connect;
+  $("sendBtn").onclick = send;
+  $("promptInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  $("roomCode").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Render Blueprint — deploys the PocketCode relay as a free web service.
+# In Render: New + → Blueprint → pick this repo → it reads this file.
+services:
+  - type: web
+    name: pocketcode-relay
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node relay/server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
