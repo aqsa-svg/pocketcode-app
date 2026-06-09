@@ -2,8 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>PocketCode — Viewer</title>
+
+<!-- PWA: makes the page installable as a real app icon, fullscreen -->
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#07080c" />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+<link rel="apple-touch-icon" href="/icon.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="PocketCode" />
 <style>
   :root{--bg:#07080c;--panel:#11131c;--border:#1d2030;--text:#e8eaf2;--muted:#8a8fa3;--accent:#7c5cff;--green:#3ddc84;--red:#ff6b6b;--amber:#febc2e;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -80,7 +89,12 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const params = new URLSearchParams(location.search);
-  if (params.get("room")) $("roomCode").value = params.get("room");
+
+  // Remember the last room so re-launching from the home-screen icon
+  // doesn't make you retype it.
+  const savedRoom = (() => { try { return localStorage.getItem("pc_room") || ""; } catch { return ""; } })();
+  const roomFromUrl = params.get("room");
+  $("roomCode").value = roomFromUrl || savedRoom;
 
   // Default the relay URL smartly:
   // - served over http/https (e.g. from the Render relay) -> same host, ws/wss
@@ -120,6 +134,7 @@
     const url = $("relayUrl").value.trim();
     const room = $("roomCode").value.trim();
     if (!room) return alert("Enter the room code from the CLI.");
+    try { localStorage.setItem("pc_room", room); } catch {}
     ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -215,6 +230,9 @@
   $("sendBtn").onclick = send;
   $("promptInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
   $("roomCode").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
+
+  // Came in from a QR code / shared link (?room=...) → connect automatically.
+  if (roomFromUrl) connect();
 </script>
 </body>
 </html>

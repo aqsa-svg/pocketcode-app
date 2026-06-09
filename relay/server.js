@@ -20,18 +20,41 @@ const path = require("path");
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8080;
-const VIEWER_FILE = path.join(__dirname, "..", "web", "index.html");
+const WEB_DIR = path.join(__dirname, "..", "web");
+const VIEWER_FILE = path.join(WEB_DIR, "index.html");
 
-// A real HTTP server that (a) serves the viewer web app, and (b) answers a
-// health check. WebSocket upgrades are handled separately by `wss` below,
-// so normal page loads and the live connection share one URL/port.
+// Static files the viewer needs (for the installable PWA + icon).
+// Anything not listed here falls through to the viewer page.
+const STATIC = {
+  "/manifest.json": { file: "manifest.json", type: "application/manifest+json; charset=utf-8" },
+  "/icon.svg": { file: "icon.svg", type: "image/svg+xml; charset=utf-8" },
+};
+
+// A real HTTP server that (a) serves the viewer web app + its assets, and
+// (b) answers a health check. WebSocket upgrades are handled separately by
+// `wss` below, so normal page loads and the live connection share one port.
 const httpServer = http.createServer((req, res) => {
-  if (req.url === "/health") {
+  // strip any query string (e.g. /?room=abc) before matching the path
+  const urlPath = (req.url || "/").split("?")[0];
+
+  if (urlPath === "/health") {
     res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("ok");
     return;
   }
-  // Serve the viewer page for any other path.
+
+  // Serve a known static asset with the right content type.
+  const asset = STATIC[urlPath];
+  if (asset) {
+    fs.readFile(path.join(WEB_DIR, asset.file), (err, data) => {
+      if (err) { res.writeHead(404); res.end("not found"); return; }
+      res.writeHead(200, { "Content-Type": asset.type });
+      res.end(data);
+    });
+    return;
+  }
+
+  // Everything else → the viewer page.
   fs.readFile(VIEWER_FILE, (err, data) => {
     if (err) {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });

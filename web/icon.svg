@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#3ddc84"/>
+    </linearGradient>
+  </defs>
+  <!-- full-bleed background so the maskable icon has no transparent corners -->
+  <rect width="512" height="512" fill="#07080c"/>
+  <!-- hexagon mark, centered -->
+  <path fill="url(#g)" d="M256 96 397 177 397 335 256 416 115 335 115 177 Z"/>
+  <!-- inner glyph: a stylized prompt chevron + cursor -->
+  <path fill="#07080c" d="M214 214 l54 42 -54 42 0 -28 22 -14 -22 -14 Z"/>
+  <rect x="282" y="282" width="50" height="14" rx="7" fill="#07080c"/>
+</svg>

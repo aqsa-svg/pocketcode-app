@@ -17,6 +17,7 @@
 const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const crypto = require("crypto");
+const qrcode = require("qrcode-terminal");
 
 // Defaults to your deployed cloud relay so phones can reach it from anywhere.
 // Override for local testing:  RELAY_URL=ws://localhost:8080 npm run host
@@ -35,6 +36,10 @@ let busy = false; // don't run two Claude turns at once
 
 const ws = new WebSocket(RELAY_URL);
 
+// The full link that opens the viewer already pointed at this room.
+// Scanning the QR (or opening this URL) connects with zero typing.
+const CONNECT_URL = `${VIEWER_HINT.replace(/\/$/, "")}/?room=${ROOM}`;
+
 ws.on("open", () => {
   ws.send(JSON.stringify({ type: "join", room: ROOM, role: "host" }));
   console.log("\n  ┌─────────────────────────────────────────────┐");
@@ -42,8 +47,9 @@ ws.on("open", () => {
   console.log("  ├─────────────────────────────────────────────┤");
   console.log(`  │   Room code:  ${ROOM.padEnd(32)}│`);
   console.log("  └─────────────────────────────────────────────┘");
-  console.log(`\n  Open the viewer (${VIEWER_HINT}),`);
-  console.log(`  enter room code "${ROOM}", and start typing.\n`);
+  console.log("\n  📷 Scan this with your phone camera to connect instantly:\n");
+  qrcode.generate(CONNECT_URL, { small: true });
+  console.log(`\n  …or open this link on your phone:\n  ${CONNECT_URL}\n`);
   console.log("  Waiting for prompts…\n");
 });
 
