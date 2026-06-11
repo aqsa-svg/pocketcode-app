@@ -1,97 +1,113 @@
-# PocketCode (MVP) — control Claude Code from your browser/phone
+# PocketCode — control Claude Code from your phone 📱
 
-A working **vertical slice** of a Happy-style remote client for Claude Code.
-Three parts, all in this folder:
+Run [Claude Code](https://docs.claude.com/claude-code) on your computer, drive it
+from your phone. Scan a QR code and you're in — **end-to-end encrypted**, and
+nothing runs on your machine until you **approve it from your phone**.
 
 ```
-  web viewer  ──prompt──▶  relay server  ──prompt──▶  CLI (host)
-   (browser)  ◀──events──   (WebSocket)   ◀──events──  wraps Claude Code
+   📱 phone  ──prompt──▶  ☁️ relay (blind)  ──prompt──▶  💻 Claude Code (your laptop)
+       ▲                                                       │
+       └──────────────── encrypted events ─────────────────────┘
 ```
 
-- **relay/server.js** — forwards messages between the CLI and viewers (rooms by code).
-- **cli/pocketcode.js** — runs on your computer, wraps Claude Code, streams its output.
-- **web/index.html** — open in a browser, see the session live, send prompts.
+- 🔒 **End-to-end encrypted** (AES-256-GCM). The relay only ever sees ciphertext —
+  the key rides in the QR link's URL fragment and never touches the server.
+- ✋ **Approve from your phone.** Before Claude runs Bash / edits / writes a file,
+  you get an Approve / Deny card. It blocks until you tap.
+- 📷 **Scan to connect.** No room codes to type.
+- 📲 **Installable.** Add the page to your home screen — it behaves like a real app.
 
-> ⚠️ **MVP scope:** messages are **not encrypted yet**, and the relay runs locally.
-> Encryption, deployment, and the React Native app are the next phases (see Roadmap).
+> Not affiliated with Anthropic.
 
 ---
 
-## Run it (3 steps, ~2 minutes)
+## Quick start
 
-You'll use **two terminals**, both opened in this folder:
-`c:\Users\aqsas\OneDrive\Desktop\pocketcode-app`
+**Prerequisites:** [Node.js](https://nodejs.org) 18+ and
+[Claude Code](https://docs.claude.com/claude-code) installed and logged in on the
+computer you want to control.
 
-### One-time setup
-```bash
-npm install
-```
-
-### Terminal 1 — start the relay
-```bash
-npm run relay
-```
-Leave it running. It prints: `PocketCode relay listening on ws://localhost:8080`
-
-### Terminal 2 — start the host (wraps Claude Code)
-```bash
-npm run host
-```
-It prints a **room code** (e.g. `a3f9c1`). Leave it running too.
-
-### Browser — open the viewer
-1. Open **web/index.html** in your browser (double-click it, or drag it into a tab).
-2. Leave **Relay URL** as `ws://localhost:8080`.
-3. Type the **room code** from Terminal 2.
-4. Click **Connect**, then type a prompt (e.g. *"list the files here"*).
-
-You'll see Claude Code's response stream into the browser in real time. ✅
-
----
-
-## Test it on your phone (same WiFi)
-
-The viewer is just a web page, so the easiest phone test is to serve it and
-point the viewer at your computer's WiFi address instead of `localhost`.
-
-1. Find your PC's WiFi IP (e.g. `192.168.1.13`).
-2. Serve the `web/` folder, e.g.: `npx serve web` (gives a `http://192.168.1.13:3000`-style URL).
-3. Start the relay with that IP reachable — viewers connect to `ws://192.168.1.13:8080`.
-4. On your phone, open the served page, set **Relay URL** to `ws://192.168.1.13:8080`,
-   enter the room code, Connect.
-
-(Once we deploy the relay to Render/Railway in the next phase, you won't need WiFi —
-it'll work over the internet with a `wss://` URL.)
-
----
-
-## How the Claude Code integration works
-
-The CLI runs Claude in headless streaming mode:
+On that computer, run:
 
 ```bash
-claude -p --output-format stream-json --verbose [--resume <session-id>]
+npx pocketcode
 ```
 
-It writes your prompt to Claude's stdin, reads the newline-delimited JSON events
-it emits, and forwards each one to the viewer. It captures the `session_id` from
-the first response and passes `--resume <id>` on later prompts so the
-conversation stays continuous.
+It prints a **QR code**. Scan it with your phone's camera — the PocketCode page
+opens, already connected and encrypted. Type a prompt and go.
+
+When Claude wants to run a command or change a file, your phone shows a
+**✋ Approve / Deny** card. Approve it and watch it happen.
 
 ---
 
-## Roadmap (next phases)
+## How it works
 
-1. ✅ **MVP pipe** — relay + CLI + web viewer (this).
-2. ⬜ **Encryption** — derive a shared key from a QR/code, encrypt every message
-   so the relay only sees ciphertext (libsodium / `crypto_box`).
-3. ⬜ **Deploy the relay** — Render or Railway, `wss://`, so it works over the
-   internet (no same-WiFi requirement).
-4. ⬜ **Permission prompts** — when Claude wants to run a tool, ask for approval
-   from the viewer (the "approve from your phone" feature).
-5. ⬜ **React Native app** — port the web viewer to a real mobile app (Expo).
-6. ⬜ **Reconnection & multi-session** — survive drops, run several sessions.
+Three parts:
+
+- **cli/pocketcode.js** — the *host*. Runs on your computer, wraps Claude Code in
+  headless streaming mode (`claude -p --output-format stream-json`), generates a
+  per-session encryption key, and runs a tiny local broker for approvals.
+- **cli/approve-hook.js** — a Claude Code `PreToolUse` hook. Before a guarded tool
+  runs, it asks the broker (which asks your phone) and allows/denies accordingly.
+  Fails safe: denies on any error or timeout.
+- **relay/server.js** — a "blind" WebSocket forwarder that pairs your laptop and
+  phone by room code. It also serves the phone-facing viewer page. It can't read
+  your messages.
+- **web/index.html** — the viewer (a PWA). Decrypts events, sends prompts, shows
+  approval cards.
+
+### Encryption
+
+A fresh 256-bit AES key is generated per run and embedded in the QR link's
+`#fragment` (fragments are never sent to a server). Every prompt and event is
+encrypted as `iv(12) || ciphertext || authTag(16)` and wrapped as
+`{type:"enc", data}`; the relay forwards these opaque blobs. The host uses Node's
+`crypto`; the viewer uses the browser's Web Crypto — wire-compatible.
+
+### Approvals
+
+Guarded tools (`Bash`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`) trigger a
+`PreToolUse` hook wired via `--settings`. Read-only tools (Read/Glob/Grep) run
+without prompting. No answer within 120s → auto-deny.
 
 ---
 
-Not affiliated with Anthropic.
+## Configuration
+
+Environment variables (all optional):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `RELAY_URL` | `wss://pocketcode-relay.onrender.com` | Relay to connect through |
+| `ROOM` | random 6-char code | Fixed room code |
+| `VIEWER_URL` | derived from `RELAY_URL` | Override the link shown in the QR |
+
+### Run your own relay
+
+```bash
+git clone https://github.com/aqsa-svg/pocketcode-app
+cd pocketcode-app && npm install
+npm run relay        # listens on :8080 (or $PORT), serves the viewer at /
+```
+
+Then point the host at it:
+
+```bash
+RELAY_URL=wss://your-relay.example.com npx pocketcode
+```
+
+A `render.yaml` is included for one-click deploy to Render's free tier.
+
+---
+
+## Security notes
+
+- The relay is a blind forwarder, but **anyone with the QR link (room + key) can
+  drive your session** — treat the link like a password.
+- Approvals are enforced by Claude Code's hook system; the host fails safe (deny).
+- The viewer needs a secure context (`https://` or `localhost`) for Web Crypto.
+
+---
+
+MIT © aqsa-svg

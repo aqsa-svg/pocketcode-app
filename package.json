@@ -1,11 +1,43 @@
 {
-  "name": "pocketcode-app",
-  "private": true,
+  "name": "pocketcode",
   "version": "0.1.0",
-  "description": "Control Claude Code from your phone — MVP (relay + CLI + web viewer).",
+  "description": "Control Claude Code from your phone — end-to-end encrypted, with approve-from-phone permissions. Scan a QR and you're in.",
+  "bin": {
+    "pocketcode": "cli/pocketcode.js"
+  },
   "scripts": {
     "relay": "node relay/server.js",
-    "host": "node cli/pocketcode.js"
+    "host": "node cli/pocketcode.js",
+    "start": "node cli/pocketcode.js"
+  },
+  "files": [
+    "cli/",
+    "relay/",
+    "web/",
+    "README.md"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "remote",
+    "mobile",
+    "cli",
+    "ai",
+    "coding-agent",
+    "end-to-end-encryption"
+  ],
+  "author": "aqsa-svg",
+  "license": "MIT",
+  "homepage": "https://github.com/aqsa-svg/pocketcode-app#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aqsa-svg/pocketcode-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aqsa-svg/pocketcode-app/issues"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "qrcode-terminal": "^0.12.0",
