@@ -9,6 +9,13 @@
  *      forwards every event Claude emits back to the viewer in real time.
  *   4. Keeps the conversation going by reusing Claude's session id (--resume).
  *
+ * END-TO-END ENCRYPTION:
+ *   A fresh 256-bit key is generated on each run and embedded in the QR link
+ *   as a URL #fragment (which browsers never send to the server). Every prompt
+ *   and event is encrypted with AES-256-GCM before it touches the relay, so the
+ *   relay is a "blind" forwarder — it only ever sees ciphertext. Only your
+ *   laptop (this CLI) and the phone that scanned the QR hold the key.
+ *
  * Run it with:   npm run host
  * Override defaults with env vars, e.g.:
  *   RELAY_URL=wss://your-relay.onrender.com ROOM=mycode npm run host
@@ -18,6 +25,32 @@ const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const crypto = require("crypto");
 const qrcode = require("qrcode-terminal");
+
+// --- End-to-end encryption -------------------------------------------------
+// One random key per session. base64url so it's safe inside a URL fragment.
+const KEY = crypto.randomBytes(32); // AES-256
+const KEY_B64URL = KEY.toString("base64url");
+
+// Wire format for an encrypted blob: iv(12) || ciphertext || authTag(16),
+// base64-encoded. This exact layout is what the browser's Web Crypto expects,
+// so Node and the browser interoperate without any extra framing.
+function encrypt(plaintext) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", KEY, iv);
+  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, ct, tag]).toString("base64");
+}
+
+function decrypt(b64) {
+  const buf = Buffer.from(b64, "base64");
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(buf.length - 16);
+  const ct = buf.subarray(12, buf.length - 16);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", KEY, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
+}
 
 // Defaults to your deployed cloud relay so phones can reach it from anywhere.
 // Override for local testing:  RELAY_URL=ws://localhost:8080 npm run host
@@ -37,8 +70,9 @@ let busy = false; // don't run two Claude turns at once
 const ws = new WebSocket(RELAY_URL);
 
 // The full link that opens the viewer already pointed at this room.
+// The key rides in the #fragment, which is NEVER sent to the relay server.
 // Scanning the QR (or opening this URL) connects with zero typing.
-const CONNECT_URL = `${VIEWER_HINT.replace(/\/$/, "")}/?room=${ROOM}`;
+const CONNECT_URL = `${VIEWER_HINT.replace(/\/$/, "")}/?room=${ROOM}#k=${KEY_B64URL}`;
 
 ws.on("open", () => {
   ws.send(JSON.stringify({ type: "join", room: ROOM, role: "host" }));
@@ -46,10 +80,12 @@ ws.on("open", () => {
   console.log("  │   PocketCode CLI connected ✓                  │");
   console.log("  ├─────────────────────────────────────────────┤");
   console.log(`  │   Room code:  ${ROOM.padEnd(32)}│`);
+  console.log("  │   🔒 end-to-end encrypted (AES-256-GCM)       │");
   console.log("  └─────────────────────────────────────────────┘");
   console.log("\n  📷 Scan this with your phone camera to connect instantly:\n");
   qrcode.generate(CONNECT_URL, { small: true });
   console.log(`\n  …or open this link on your phone:\n  ${CONNECT_URL}\n`);
+  console.log("  The relay only ever sees ciphertext — your key never leaves this link.");
   console.log("  Waiting for prompts…\n");
 });
 
@@ -60,8 +96,20 @@ ws.on("message", (data) => {
   } catch {
     return;
   }
-  if (msg.type === "prompt") runClaude(msg.text);
-  else if (msg.type === "status") {
+  // Encrypted payloads from the viewer (prompts) arrive wrapped as {type:"enc"}.
+  if (msg.type === "enc") {
+    let inner;
+    try {
+      inner = JSON.parse(decrypt(msg.data));
+    } catch {
+      console.error("  ⚠ failed to decrypt a message (wrong key?)");
+      return;
+    }
+    if (inner.type === "prompt") runClaude(inner.text);
+    return;
+  }
+  // Plaintext relay metadata (not secret).
+  if (msg.type === "status") {
     console.log(`  [status] viewers online: ${msg.viewers}`);
   }
 });
@@ -71,7 +119,9 @@ ws.on("error", (e) => console.error("\n  relay error:", e.message, "\n"));
 
 function forward(event) {
   try {
-    ws.send(JSON.stringify({ type: "event", event }));
+    // Encrypt the whole event envelope; the relay forwards it as opaque bytes.
+    const data = encrypt(JSON.stringify({ type: "event", event }));
+    ws.send(JSON.stringify({ type: "enc", data }));
   } catch {
     /* ignore */
   }
