@@ -47,6 +47,17 @@
   .sys{align-self:center;color:var(--muted);font-size:12px;}
   .err{align-self:flex-start;background:#1a0d10;border:1px solid #3a1c1c;color:var(--red);font-size:13px;}
 
+  /* approval card */
+  .approval{align-self:stretch;background:#15120a;border:1px solid #4a3a14;border-radius:14px;padding:13px 14px;}
+  .approval .ahead{font-size:14px;color:var(--amber);margin-bottom:8px;}
+  .approval .ahead b{color:var(--text);}
+  .approval .abody{background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:12.5px;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;margin-bottom:10px;}
+  .approval .abtns{display:flex;gap:10px;}
+  .approval .abtns button{flex:1;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;}
+  .approval .abtns .approve{background:var(--green);color:#04210f;}
+  .approval .abtns .deny{background:#2a1416;color:var(--red);border:1px solid #3a1c1c;}
+  .approval .adone{font-size:13px;font-weight:600;color:var(--muted);}
+
   /* input bar */
   .inputbar{display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
   .inputbar input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none;}
@@ -243,11 +254,48 @@
           addMsg("sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`);
         break;
 
+      case "approval_request": addApproval(evt); break;
+
       case "turn_complete": setBusy(false); break;
       case "busy": addMsg("sys", "CLI is busy with another prompt — try again in a sec."); setBusy(false); break;
       case "stderr": /* usually noise; ignore in MVP */ break;
       case "error": addMsg("err", evt.text); setBusy(false); break;
     }
+  }
+
+  // Build a short, human-readable summary of what a tool wants to do.
+  function describeTool(tool, input){
+    input = input || {};
+    if (tool === "Bash") return input.command || "";
+    if (tool === "Edit" || tool === "Write" || tool === "NotebookEdit") return input.file_path || input.notebook_path || "";
+    if (tool === "WebFetch") return input.url || "";
+    return truncate(JSON.stringify(input), 160);
+  }
+
+  // Render an Approve / Deny card for a guarded tool the host is asking about.
+  function addApproval(evt){
+    const card = document.createElement("div");
+    card.className = "approval";
+    const detail = describeTool(evt.tool, evt.input);
+    card.innerHTML =
+      '<div class="ahead">✋ Allow <b>' + (evt.tool || "tool") + '</b>?</div>' +
+      (detail ? '<div class="abody mono"></div>' : '') +
+      '<div class="abtns"><button class="deny">Deny</button><button class="approve">Approve</button></div>';
+    if (detail) card.querySelector(".abody").textContent = truncate(detail, 300);
+    const finish = (decision, label) => {
+      sendApproval(evt.id, decision);
+      card.querySelector(".abtns").innerHTML = '<span class="adone">' + label + '</span>';
+    };
+    card.querySelector(".approve").onclick = () => finish("allow", "✓ Approved");
+    card.querySelector(".deny").onclick = () => finish("deny", "✗ Denied");
+    $("chat").appendChild(card);
+    $("chat").scrollTop = $("chat").scrollHeight;
+  }
+
+  async function sendApproval(id, decision){
+    if (!ws || ws.readyState !== 1 || !cryptoKey) return;
+    const data = await enc(JSON.stringify({ type:"approval_response", id, decision }));
+    ws.send(JSON.stringify({ type:"enc", data }));
   }
 
   function summarize(input){

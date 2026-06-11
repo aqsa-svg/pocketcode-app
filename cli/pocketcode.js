@@ -16,6 +16,12 @@
  *   relay is a "blind" forwarder — it only ever sees ciphertext. Only your
  *   laptop (this CLI) and the phone that scanned the QR hold the key.
  *
+ * APPROVE-FROM-PHONE (permissions):
+ *   Before Claude runs a sensitive tool (Bash/Edit/Write/…), a PreToolUse hook
+ *   fires and asks a tiny local "broker" (HTTP on 127.0.0.1) for a decision.
+ *   The broker forwards the request to your phone (encrypted) and BLOCKS until
+ *   you tap Approve / Deny. So nothing runs on your machine without your okay.
+ *
  * Run it with:   npm run host
  * Override defaults with env vars, e.g.:
  *   RELAY_URL=wss://your-relay.onrender.com ROOM=mycode npm run host
@@ -24,6 +30,10 @@
 const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const crypto = require("crypto");
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 const qrcode = require("qrcode-terminal");
 
 // --- End-to-end encryption -------------------------------------------------
@@ -67,6 +77,83 @@ const VIEWER_HINT =
 let sessionId = null; // Claude Code session id, for conversation continuity
 let busy = false; // don't run two Claude turns at once
 
+// --- Approve-from-phone -----------------------------------------------------
+// Which tools must be approved on the phone before they run. Read-only tools
+// (Read/Glob/Grep/…) are allowed automatically by Claude's default mode.
+const GUARDED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch"];
+const APPROVAL_TIMEOUT_MS = 120000; // auto-deny if the phone never answers
+
+const BROKER_TOKEN = crypto.randomBytes(16).toString("hex"); // local auth
+const pendingApprovals = new Map(); // id -> resolve(decision)
+let brokerPort = 0;
+
+// The hook script Claude runs for each guarded tool (absolute path, fwd slashes
+// so the same string works on Windows and *nix shells).
+const HOOK_PATH = path.join(__dirname, "approve-hook.js").replace(/\\/g, "/");
+const SETTINGS_FILE = path.join(os.tmpdir(), `pocketcode-hooks-${ROOM}.json`);
+
+function writeSettingsFile() {
+  const settings = {
+    hooks: {
+      PreToolUse: GUARDED_TOOLS.map((tool) => ({
+        matcher: tool,
+        hooks: [{ type: "command", command: `node "${HOOK_PATH}"`, timeout: 300 }],
+      })),
+    },
+  };
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings));
+}
+
+// Local broker: the hook (a separate process Claude spawns) POSTs here; we
+// relay the request to the phone and hold the response open until it answers.
+const broker = http.createServer((req, res) => {
+  if (req.method !== "POST" || req.url !== "/ask") {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  let body = "";
+  req.on("data", (c) => (body += c));
+  req.on("end", () => {
+    let j;
+    try {
+      j = JSON.parse(body);
+    } catch {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    if (j.token !== BROKER_TOKEN) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    const id = j.tool_use_id || crypto.randomBytes(6).toString("hex");
+    let settled = false;
+    const respond = (decision, reason) => {
+      if (settled) return;
+      settled = true;
+      pendingApprovals.delete(id);
+      try {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ decision, reason }));
+      } catch {
+        /* ignore */
+      }
+    };
+    pendingApprovals.set(id, (decision) =>
+      respond(decision, decision === "allow" ? "Approved on phone" : "Denied on phone")
+    );
+    // Ask the phone (encrypted via forward()).
+    forward({ type: "approval_request", id, tool: j.tool, input: j.input });
+    console.log(`  ✋ approval needed: ${j.tool} — waiting for your phone…`);
+    setTimeout(() => respond("deny", "No response from phone (timed out)"), APPROVAL_TIMEOUT_MS);
+  });
+});
+broker.listen(0, "127.0.0.1", () => {
+  brokerPort = broker.address().port;
+});
+
 const ws = new WebSocket(RELAY_URL);
 
 // The full link that opens the viewer already pointed at this room.
@@ -81,6 +168,7 @@ ws.on("open", () => {
   console.log("  ├─────────────────────────────────────────────┤");
   console.log(`  │   Room code:  ${ROOM.padEnd(32)}│`);
   console.log("  │   🔒 end-to-end encrypted (AES-256-GCM)       │");
+  console.log("  │   ✋ approve-from-phone enabled               │");
   console.log("  └─────────────────────────────────────────────┘");
   console.log("\n  📷 Scan this with your phone camera to connect instantly:\n");
   qrcode.generate(CONNECT_URL, { small: true });
@@ -106,6 +194,14 @@ ws.on("message", (data) => {
       return;
     }
     if (inner.type === "prompt") runClaude(inner.text);
+    else if (inner.type === "approval_response") {
+      const resolve = pendingApprovals.get(inner.id);
+      if (resolve) {
+        const decision = inner.decision === "allow" ? "allow" : "deny";
+        console.log(`  ${decision === "allow" ? "✓ approved" : "✗ denied"} on phone`);
+        resolve(decision);
+      }
+    }
     return;
   }
   // Plaintext relay metadata (not secret).
@@ -141,11 +237,28 @@ function runClaude(prompt) {
 
   // Claude Code in headless, streaming-JSON mode.
   // --resume keeps the SAME conversation across prompts.
-  const args = ["-p", "--output-format", "stream-json", "--verbose"];
+  // --settings wires our PreToolUse approval hook for guarded tools.
+  writeSettingsFile();
+  const args = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--settings",
+    SETTINGS_FILE,
+  ];
   if (sessionId) args.push("--resume", sessionId);
 
-  // shell:true lets Windows resolve claude.exe via PATH.
-  const child = spawn("claude", args, { shell: true });
+  // shell:true lets Windows resolve claude.exe via PATH. The hook reads the
+  // broker port + token from these env vars (inherited through Claude).
+  const child = spawn("claude", args, {
+    shell: true,
+    env: {
+      ...process.env,
+      POCKETCODE_BROKER_PORT: String(brokerPort),
+      POCKETCODE_TOKEN: BROKER_TOKEN,
+    },
+  });
 
   // send the prompt to Claude via stdin (avoids any arg-quoting issues)
   child.stdin.write(prompt);
