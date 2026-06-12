@@ -14,8 +14,12 @@ nothing runs on your machine until you **approve it from your phone**.
   the key rides in the QR link's URL fragment and never touches the server.
 - ✋ **Approve from your phone.** Before Claude runs Bash / edits / writes a file,
   you get an Approve / Deny card. It blocks until you tap.
+- 🔔 **Push notifications.** Your phone buzzes for approvals (and when a task
+  finishes) — even with the app closed. Web Push payloads are encrypted to your
+  browser, so push providers can't read them.
 - 📷 **Scan to connect.** No room codes to type.
 - 📲 **Installable.** Add the page to your home screen — it behaves like a real app.
+- ♻️ **Auto-reconnect.** Survives the relay sleeping or a flaky connection.
 
 > Not affiliated with Anthropic.
 
@@ -107,6 +111,9 @@ A `render.yaml` is included for one-click deploy to Render's free tier.
   drive your session** — treat the link like a password.
 - Approvals are enforced by Claude Code's hook system; the host fails safe (deny).
 - The viewer needs a secure context (`https://` or `localhost`) for Web Crypto.
+- **Notifications:** Android Chrome works out of the box. On iPhone you must first
+  **Add to Home Screen** and open it from there (iOS 16.4+ only supports Web Push
+  for installed PWAs). If push isn't available, everything else still works.
 
 ---
 

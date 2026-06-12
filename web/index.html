@@ -172,25 +172,43 @@
     if (b) showTyping(); else clearTyping();
   }
 
+  let curUrl = "", curRoom = "", reconnectTimer = null, reconnectAttempts = 0;
+
+  // Send an encrypted object to the host.
+  async function sendEnc(obj){
+    if (!ws || ws.readyState !== 1 || !cryptoKey) return;
+    ws.send(JSON.stringify({ type:"enc", data: await enc(JSON.stringify(obj)) }));
+  }
+
   function connect(){
     const url = $("relayUrl").value.trim();
     const room = $("roomCode").value.trim();
     if (!room) return alert("Enter the room code from the CLI.");
     if (!cryptoKey) return alert("Missing encryption key — open this page via the QR code / link from your terminal.");
     try { localStorage.setItem("pc_room", room); } catch {}
-    ws = new WebSocket(url);
+    curUrl = url; curRoom = room;
+    // Asking now (a user gesture) means the push subscribe later won't be blocked.
+    try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
+    openSocket();
+  }
+
+  function openSocket(){
+    clearTimeout(reconnectTimer);
+    ws = new WebSocket(curUrl);
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type:"join", room, role:"viewer" }));
+      reconnectAttempts = 0;
+      ws.send(JSON.stringify({ type:"join", room: curRoom, role:"viewer" }));
+      sendEnc({ type:"client_hello" }); // ask the host for its push (VAPID) key
       setConn(true, "connecting…");
       $("connectPanel").classList.add("hidden");
       $("chat").classList.remove("hidden");
       $("inputbar").classList.remove("hidden");
-      $("roomLabel").textContent = "· room " + room;
+      $("roomLabel").textContent = "· room " + curRoom;
       $("promptInput").focus();
     };
-    ws.onclose = () => setConn(false, "disconnected");
-    ws.onerror = () => setConn(false, "error — is the relay running?");
+    ws.onclose = () => { setConn(false, "reconnecting…"); scheduleReconnect(); };
+    ws.onerror = () => setConn(false, "error — reconnecting…");
     ws.onmessage = async (e) => {
       let msg; try { msg = JSON.parse(e.data); } catch { return; }
       // Encrypted payloads (events from the host) arrive as {type:"enc"}.
@@ -201,6 +219,15 @@
       }
       handle(msg); // plaintext relay metadata (status / joined)
     };
+  }
+
+  // Exponential-ish backoff so a dropped/sleeping relay reconnects on its own.
+  function scheduleReconnect(){
+    if (!curUrl) return;
+    reconnectAttempts++;
+    const delay = Math.min(1000 * reconnectAttempts, 8000);
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(openSocket, delay);
   }
 
   function handle(msg){
@@ -255,6 +282,7 @@
         break;
 
       case "approval_request": addApproval(evt); break;
+      case "vapid": setupPush(evt.key); break;
 
       case "turn_complete": setBusy(false); break;
       case "busy": addMsg("sys", "CLI is busy with another prompt — try again in a sec."); setBusy(false); break;
@@ -293,9 +321,44 @@
   }
 
   async function sendApproval(id, decision){
-    if (!ws || ws.readyState !== 1 || !cryptoKey) return;
-    const data = await enc(JSON.stringify({ type:"approval_response", id, decision }));
-    ws.send(JSON.stringify({ type:"enc", data }));
+    await sendEnc({ type:"approval_response", id, decision });
+  }
+
+  // --- Push notifications ----------------------------------------------------
+  function urlB64ToUint8Array(base64){
+    const pad = "=".repeat((4 - (base64.length % 4)) % 4);
+    const b64 = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(b64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  let pushReady = false;
+  // Called when the host sends its VAPID public key: register the service
+  // worker, subscribe to push, and send the subscription back to the host.
+  async function setupPush(vapidKey){
+    if (pushReady || !vapidKey) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      if (!window.Notification) return;
+      let perm = Notification.permission;
+      if (perm === "default") perm = await Notification.requestPermission();
+      if (perm !== "granted") return;
+      // The VAPID key is per host-session, so drop any stale subscription first.
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) { try { await existing.unsubscribe(); } catch {} }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(vapidKey),
+      });
+      await sendEnc({ type:"push_subscription", sub: sub.toJSON() });
+      pushReady = true;
+      addMsg("sys", "🔔 notifications on — your phone will buzz for approvals");
+    } catch {
+      /* push unavailable (e.g. iOS not installed to home screen) — app still works */
+    }
   }
 
   function summarize(input){

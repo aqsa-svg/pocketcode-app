@@ -28,6 +28,7 @@ const VIEWER_FILE = path.join(WEB_DIR, "index.html");
 const STATIC = {
   "/manifest.json": { file: "manifest.json", type: "application/manifest+json; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", type: "image/svg+xml; charset=utf-8" },
+  "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
 };
 
 // A real HTTP server that (a) serves the viewer web app + its assets, and

@@ -62,6 +62,37 @@ function decrypt(b64) {
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
 }
 
+// --- Web push notifications -------------------------------------------------
+// Lets your phone get a notification (e.g. "approve this command?") even when
+// the PocketCode page is closed. The host signs pushes with a per-session VAPID
+// key; the Web Push payload is itself encrypted to the browser, so the push
+// provider (Google/Apple) can't read it. Optional — if `web-push` isn't
+// installed the app still works, just without background notifications.
+let webpush = null;
+try {
+  webpush = require("web-push");
+} catch {
+  /* optional dependency */
+}
+let VAPID_PUBLIC = null;
+const pushSubs = new Map(); // endpoint -> PushSubscription
+if (webpush) {
+  const keys = webpush.generateVAPIDKeys();
+  VAPID_PUBLIC = keys.publicKey;
+  webpush.setVapidDetails("mailto:pocketcode@users.noreply.github.com", keys.publicKey, keys.privateKey);
+}
+
+function sendPush(payload) {
+  if (!webpush || pushSubs.size === 0) return;
+  const body = JSON.stringify(payload);
+  for (const [endpoint, sub] of pushSubs) {
+    webpush.sendNotification(sub, body).catch((err) => {
+      // 404/410 = the subscription is gone; stop trying it.
+      if (err && (err.statusCode === 404 || err.statusCode === 410)) pushSubs.delete(endpoint);
+    });
+  }
+}
+
 // Defaults to your deployed cloud relay so phones can reach it from anywhere.
 // Override for local testing:  RELAY_URL=ws://localhost:8080 npm run host
 const RELAY_URL = process.env.RELAY_URL || "wss://pocketcode-relay.onrender.com";
@@ -144,8 +175,9 @@ const broker = http.createServer((req, res) => {
     pendingApprovals.set(id, (decision) =>
       respond(decision, decision === "allow" ? "Approved on phone" : "Denied on phone")
     );
-    // Ask the phone (encrypted via forward()).
+    // Ask the phone (encrypted via forward()) + buzz it with a push.
     forward({ type: "approval_request", id, tool: j.tool, input: j.input });
+    sendPush({ title: "PocketCode", body: `✋ Approve ${j.tool}?`, tag: `approval-${id}` });
     console.log(`  ✋ approval needed: ${j.tool} — waiting for your phone…`);
     setTimeout(() => respond("deny", "No response from phone (timed out)"), APPROVAL_TIMEOUT_MS);
   });
@@ -169,6 +201,7 @@ ws.on("open", () => {
   console.log(`  │   Room code:  ${ROOM.padEnd(32)}│`);
   console.log("  │   🔒 end-to-end encrypted (AES-256-GCM)       │");
   console.log("  │   ✋ approve-from-phone enabled               │");
+  if (webpush) console.log("  │   🔔 push notifications ready                 │");
   console.log("  └─────────────────────────────────────────────┘");
   console.log("\n  📷 Scan this with your phone camera to connect instantly:\n");
   qrcode.generate(CONNECT_URL, { small: true });
@@ -201,6 +234,12 @@ ws.on("message", (data) => {
         console.log(`  ${decision === "allow" ? "✓ approved" : "✗ denied"} on phone`);
         resolve(decision);
       }
+    } else if (inner.type === "client_hello") {
+      // A viewer connected; hand it the VAPID public key so it can subscribe.
+      if (VAPID_PUBLIC) forward({ type: "vapid", key: VAPID_PUBLIC });
+    } else if (inner.type === "push_subscription" && inner.sub && inner.sub.endpoint) {
+      pushSubs.set(inner.sub.endpoint, inner.sub);
+      console.log("  🔔 phone subscribed to notifications");
     }
     return;
   }
@@ -297,6 +336,7 @@ function runClaude(prompt) {
   child.on("close", (code) => {
     busy = false;
     forward({ type: "turn_complete", code });
+    sendPush({ title: "PocketCode", body: "✓ Claude finished your task", tag: "turn-complete" });
     console.log(`\n  ✓ turn complete (exit ${code})\n`);
   });
 }
