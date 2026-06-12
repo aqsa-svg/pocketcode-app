@@ -31,6 +31,7 @@ const WebSocket = require("ws");
 const { spawn } = require("child_process");
 const crypto = require("crypto");
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -83,14 +84,33 @@ if (webpush) {
 }
 
 function sendPush(payload) {
-  if (!webpush || pushSubs.size === 0) return;
+  if (pushSubs.size === 0) return;
   const body = JSON.stringify(payload);
-  for (const [endpoint, sub] of pushSubs) {
-    webpush.sendNotification(sub, body).catch((err) => {
-      // 404/410 = the subscription is gone; stop trying it.
-      if (err && (err.statusCode === 404 || err.statusCode === 410)) pushSubs.delete(endpoint);
-    });
+  for (const [id, sub] of pushSubs) {
+    if (sub.expoToken) {
+      sendExpoPush(sub.expoToken, payload); // native app (Expo) push
+      continue;
+    }
+    if (webpush) {
+      webpush.sendNotification(sub, body).catch((err) => {
+        // 404/410 = the subscription is gone; stop trying it.
+        if (err && (err.statusCode === 404 || err.statusCode === 410)) pushSubs.delete(id);
+      });
+    }
   }
+}
+
+// Send a notification to the React Native app via Expo's push service.
+function sendExpoPush(token, payload) {
+  const data = JSON.stringify({ to: token, title: payload.title, body: payload.body, priority: "high" });
+  const req = https.request(
+    "https://exp.host/--/api/v2/push/send",
+    { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) } },
+    (res) => { res.on("data", () => {}); res.on("end", () => {}); }
+  );
+  req.on("error", () => {});
+  req.write(data);
+  req.end();
 }
 
 // Defaults to your deployed cloud relay so phones can reach it from anywhere.
@@ -237,9 +257,14 @@ ws.on("message", (data) => {
     } else if (inner.type === "client_hello") {
       // A viewer connected; hand it the VAPID public key so it can subscribe.
       if (VAPID_PUBLIC) forward({ type: "vapid", key: VAPID_PUBLIC });
-    } else if (inner.type === "push_subscription" && inner.sub && inner.sub.endpoint) {
-      pushSubs.set(inner.sub.endpoint, inner.sub);
-      console.log("  🔔 phone subscribed to notifications");
+    } else if (inner.type === "push_subscription" && inner.sub) {
+      // Web viewers send a PushSubscription (has .endpoint); the native app
+      // sends an Expo token (has .expoToken). Key by whichever is present.
+      const id = inner.sub.endpoint || inner.sub.expoToken;
+      if (id) {
+        pushSubs.set(id, inner.sub);
+        console.log("  🔔 phone subscribed to notifications");
+      }
     }
     return;
   }
