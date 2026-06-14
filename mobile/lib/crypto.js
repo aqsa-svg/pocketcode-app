@@ -116,5 +116,6 @@ export function parseConnectLink(text) {
     return null;
   }
   if (key.length !== 32) return null;
-  return { relayUrl, room, key };
+  // keyB64url is returned too so a session can be persisted and rebuilt later.
+  return { relayUrl, room, key, keyB64url: keyB64 };
 }
