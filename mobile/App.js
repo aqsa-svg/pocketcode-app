@@ -41,6 +41,7 @@ export default function App() {
 
   const [scanning, setScanning] = useState(false);
   const [linkText, setLinkText] = useState("");
+  const [editing, setEditing] = useState(null); // { id, label } when renaming
   const [permission, requestPermission] = useCameraPermissions();
 
   const activeSession = useRef(null);
@@ -70,9 +71,9 @@ export default function App() {
   const persistInbox = (next) => { setInbox(next); AsyncStorage.setItem("pc_inbox", JSON.stringify(next.slice(0, 200))).catch(() => {}); };
   const persistSettings = (next) => { setSettings(next); settingsRef.current = next; AsyncStorage.setItem("pc_settings", JSON.stringify(next)).catch(() => {}); };
 
-  const addInbox = useCallback((kind, title) => {
+  const addInbox = useCallback((kind, title, detail) => {
     setInbox((prev) => {
-      const next = [{ id: uid(), ts: Date.now(), kind, title }, ...prev];
+      const next = [{ id: uid(), ts: Date.now(), kind, title, detail: detail || "" }, ...prev];
       AsyncStorage.setItem("pc_inbox", JSON.stringify(next.slice(0, 200))).catch(() => {});
       return next;
     });
@@ -154,7 +155,7 @@ export default function App() {
       case "result": if (evt.total_cost_usd != null) addMsg("sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`); break;
       case "approval_request":
         addMsg("approval", "", { tool: evt.tool, input: evt.input, reqId: evt.id, decided: null });
-        addInbox("approval", `✋ Approval: ${evt.tool}`);
+        addInbox("approval", `✋ Approval: ${evt.tool}`, describeTool(evt.tool, evt.input));
         break;
       case "vapid": if (settingsRef.current.notifications) registerPush(); break;
       case "turn_complete": setBusy(false); addInbox("done", "✓ Claude finished a task"); break;
@@ -199,6 +200,14 @@ export default function App() {
   function removeSession(id) {
     persistSessions(sessions.filter((s) => s.id !== id));
     if (activeId === id) disconnect();
+  }
+
+  function saveRename() {
+    if (!editing) return;
+    const label = (editing.label || "").trim() || "Session";
+    persistSessions(sessions.map((x) => (x.id === editing.id ? { ...x, label } : x)));
+    if (activeSession.current && activeSession.current.id === editing.id) activeSession.current.label = label;
+    setEditing(null);
   }
 
   function disconnect() {
@@ -262,6 +271,7 @@ export default function App() {
                   </View>
                   <Text style={s.sessionSub}>{activeId === sess.id ? status : "tap to connect"}</Text>
                 </TouchableOpacity>
+                <TouchableOpacity onPress={() => setEditing({ id: sess.id, label: sess.label })}><Text style={s.remove}>✏️</Text></TouchableOpacity>
                 <TouchableOpacity onPress={() => removeSession(sess.id)}><Text style={s.remove}>🗑</Text></TouchableOpacity>
               </View>
             ))}
@@ -299,6 +309,7 @@ export default function App() {
                   <Text style={s.inboxIcon}>{item.kind === "approval" ? "✋" : "✓"}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={s.inboxTitle}>{item.title}</Text>
+                    {item.detail ? <Text style={s.inboxDetail} numberOfLines={2}>{item.detail}</Text> : null}
                     <Text style={s.inboxTime}>{timeAgo(item.ts)}</Text>
                   </View>
                 </View>
@@ -352,6 +363,20 @@ export default function App() {
         <View style={s.scanWrap}>
           <CameraView style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={onScan} />
           <TouchableOpacity style={s.cancelScan} onPress={() => setScanning(false)}><Text style={s.cancelScanText}>Cancel</Text></TouchableOpacity>
+        </View>
+      </Modal>
+
+      <Modal visible={!!editing} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
+        <View style={s.modalBackdrop}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>Rename session</Text>
+            <TextInput style={s.input} value={editing ? editing.label : ""} autoFocus
+              onChangeText={(t) => setEditing((e) => ({ ...e, label: t }))} placeholder="Session name" placeholderTextColor={C.muted} />
+            <View style={{ flexDirection: "row", marginTop: 12 }}>
+              <TouchableOpacity style={[s.aBtn, s.denyBtn]} onPress={() => setEditing(null)}><Text style={s.denyText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[s.aBtn, s.approveBtn]} onPress={saveRename}><Text style={s.approveText}>Save</Text></TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -472,8 +497,12 @@ const s = StyleSheet.create({
   inboxRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 13, marginBottom: 9 },
   inboxIcon: { fontSize: 18, marginRight: 12 },
   inboxTitle: { color: C.text, fontSize: 14 },
-  inboxTime: { color: C.muted, fontSize: 12, marginTop: 2 },
+  inboxDetail: { color: C.muted, fontSize: 12, fontFamily: mono, marginTop: 3 },
+  inboxTime: { color: C.muted, fontSize: 12, marginTop: 4 },
   clearLink: { color: C.muted, fontSize: 13 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 28 },
+  modalCard: { backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 18 },
+  modalTitle: { color: C.text, fontSize: 16, fontWeight: "700", marginBottom: 12 },
   // settings
   settingRow: { flexDirection: "row", alignItems: "center", marginTop: 22 },
   settingTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
