@@ -1,5 +1,5 @@
 // PocketCode — React Native (Expo) app.
-// Tabbed app: Sessions (your machines) · Chat (live) · Inbox (history) · Settings.
+// Tabbed app with MULTIPLE simultaneous live sessions: Sessions · Chat · Inbox · Settings.
 // End-to-end encrypted, wire-compatible with the web viewer and Node host.
 import "react-native-get-random-values"; // must load before any crypto use
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -26,30 +26,29 @@ const uid = () => `${Date.now()}-${++seq}`;
 
 export default function App() {
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState("sessions"); // sessions | chat | inbox | settings
+  const [tab, setTab] = useState("sessions");
 
-  const [sessions, setSessions] = useState([]);   // {id,label,relayUrl,room,keyB64url}
-  const [inbox, setInbox] = useState([]);         // {id,ts,kind,title}
+  const [sessions, setSessions] = useState([]);
+  const [inbox, setInbox] = useState([]);
   const [settings, setSettings] = useState({ defaultRelay: DEFAULT_RELAY, notifications: true });
 
   const [activeId, setActiveId] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [messagesMap, setMessagesMap] = useState({}); // id -> [msg]
+  const [onlineMap, setOnlineMap] = useState({});     // id -> bool
+  const [statusMap, setStatusMap] = useState({});     // id -> string
+  const [busyMap, setBusyMap] = useState({});         // id -> bool
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("offline");
-  const [online, setOnline] = useState(false);
 
   const [scanning, setScanning] = useState(false);
   const [linkText, setLinkText] = useState("");
-  const [editing, setEditing] = useState(null); // { id, label } when renaming
+  const [editing, setEditing] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
 
-  const activeSession = useRef(null);
-  const ws = useRef(null);
-  const reconnect = useRef({ timer: null, attempts: 0, closed: false });
-  const listRef = useRef(null);
-  const messagesRef = useRef([]);
+  const conns = useRef(new Map());      // id -> { sock, key, label, reconnect:{timer,attempts,closed} }
+  const messagesRef = useRef({});       // mirror of messagesMap for event handlers
+  const sessionsRef = useRef([]);
   const settingsRef = useRef(settings);
+  const listRef = useRef(null);
 
   // --- persistence -----------------------------------------------------------
   useEffect(() => {
@@ -60,16 +59,23 @@ export default function App() {
           AsyncStorage.getItem("pc_inbox"),
           AsyncStorage.getItem("pc_settings"),
         ]);
-        if (s) setSessions(JSON.parse(s));
+        if (s) { const arr = JSON.parse(s); setSessions(arr); sessionsRef.current = arr; }
         if (i) setInbox(JSON.parse(i));
         if (cfg) { const c = JSON.parse(cfg); setSettings(c); settingsRef.current = c; }
       } catch {}
       setReady(true);
     })();
   }, []);
-  const persistSessions = (next) => { setSessions(next); AsyncStorage.setItem("pc_sessions", JSON.stringify(next)).catch(() => {}); };
+  const persistSessions = (next) => { setSessions(next); sessionsRef.current = next; AsyncStorage.setItem("pc_sessions", JSON.stringify(next)).catch(() => {}); };
   const persistInbox = (next) => { setInbox(next); AsyncStorage.setItem("pc_inbox", JSON.stringify(next.slice(0, 200))).catch(() => {}); };
   const persistSettings = (next) => { setSettings(next); settingsRef.current = next; AsyncStorage.setItem("pc_settings", JSON.stringify(next)).catch(() => {}); };
+
+  const labelFor = (id) => {
+    const c = conns.current.get(id);
+    if (c && c.label) return c.label;
+    const s2 = sessionsRef.current.find((x) => x.id === id);
+    return s2 ? s2.label : "session";
+  };
 
   const addInbox = useCallback((kind, title, detail) => {
     setInbox((prev) => {
@@ -79,68 +85,47 @@ export default function App() {
     });
   }, []);
 
-  const addMsg = useCallback((kind, text, extra) => {
-    setMessages((m) => { const next = [...m, { id: uid(), kind, text, ...extra }]; messagesRef.current = next; return next; });
+  // --- per-session state setters --------------------------------------------
+  const setOnlineFor = (id, v) => setOnlineMap((m) => ({ ...m, [id]: v }));
+  const setStatusFor = (id, v) => setStatusMap((m) => ({ ...m, [id]: v }));
+  const setBusyFor = (id, v) => setBusyMap((m) => ({ ...m, [id]: v }));
+  const addMsgTo = (id, kind, text, extra) => setMessagesMap((m) => {
+    const list = [...(m[id] || []), { id: uid(), kind, text, ...extra }];
+    const next = { ...m, [id]: list };
+    messagesRef.current = next;
+    return next;
+  });
+
+  useEffect(() => { if (listRef.current) setTimeout(() => listRef.current.scrollToEnd({ animated: true }), 50); }, [messagesMap, activeId]);
+
+  // --- networking (one socket per session) -----------------------------------
+  const sendEncTo = useCallback((id, obj) => {
+    const c = conns.current.get(id);
+    if (!c || !c.sock || c.sock.readyState !== 1) return;
+    c.sock.send(JSON.stringify({ type: "enc", data: encrypt(c.key, JSON.stringify(obj)) }));
   }, []);
 
-  useEffect(() => { if (listRef.current) setTimeout(() => listRef.current.scrollToEnd({ animated: true }), 50); }, [messages]);
-
-  // --- socket ----------------------------------------------------------------
-  const sendEnc = useCallback((obj) => {
-    const sock = ws.current;
-    if (!sock || sock.readyState !== 1 || !activeSession.current) return;
-    sock.send(JSON.stringify({ type: "enc", data: encrypt(activeSession.current.key, JSON.stringify(obj)) }));
-  }, []);
-
-  const handle = useCallback((msg) => {
-    if (msg.type === "joined") { setOnline(true); setStatus("online"); return; }
+  const handle = useCallback((id, msg) => {
+    if (msg.type === "joined") { setOnlineFor(id, true); setStatusFor(id, "online"); return; }
     if (msg.type === "status") {
-      setOnline(!!msg.hostOnline);
-      setStatus(msg.hostOnline ? "online · CLI connected" : "waiting for CLI…");
+      setOnlineFor(id, !!msg.hostOnline);
+      setStatusFor(id, msg.hostOnline ? "online · CLI connected" : "waiting for CLI…");
       return;
     }
     if (msg.type !== "event") return;
-    render(msg.event);
+    renderEvent(id, msg.event);
   }, []);
 
-  const openSocket = useCallback(() => {
-    const sess = activeSession.current;
-    if (!sess) return;
-    clearTimeout(reconnect.current.timer);
-    try { ws.current && ws.current.close(); } catch {}
-    const sock = new WebSocket(sess.relayUrl);
-    ws.current = sock;
-    sock.onopen = () => {
-      reconnect.current.attempts = 0;
-      sock.send(JSON.stringify({ type: "join", room: sess.room, role: "viewer" }));
-      sendEnc({ type: "client_hello" });
-      setOnline(true); setStatus("connecting…");
-    };
-    sock.onclose = () => {
-      setOnline(false);
-      if (reconnect.current.closed) return;
-      setStatus("reconnecting…");
-      reconnect.current.attempts++;
-      reconnect.current.timer = setTimeout(openSocket, Math.min(1000 * reconnect.current.attempts, 8000));
-    };
-    sock.onerror = () => setStatus("connection error");
-    sock.onmessage = (e) => {
-      let msg; try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.type === "enc") { let inner; try { inner = JSON.parse(decrypt(sess.key, msg.data)); } catch { return; } handle(inner); return; }
-      handle(msg);
-    };
-  }, [sendEnc, handle]);
-
-  function render(evt) {
+  function renderEvent(id, evt) {
     if (!evt || !evt.type) return;
     switch (evt.type) {
-      case "user_prompt": addMsg("user", evt.text); setBusy(true); break;
-      case "system": if (evt.subtype === "init") addMsg("sys", `session started · ${evt.model || "claude"}`); break;
+      case "user_prompt": addMsgTo(id, "user", evt.text); setBusyFor(id, true); break;
+      case "system": if (evt.subtype === "init") addMsgTo(id, "sys", `session started · ${evt.model || "claude"}`); break;
       case "assistant": {
         const content = (evt.message && evt.message.content) || [];
         for (const b of content) {
-          if (b.type === "text" && b.text && b.text.trim()) addMsg("ai", b.text);
-          else if (b.type === "tool_use") addMsg("tool", `🔧 ${b.name}  ${summarize(b.input)}`);
+          if (b.type === "text" && b.text && b.text.trim()) addMsgTo(id, "ai", b.text);
+          else if (b.type === "tool_use") addMsgTo(id, "tool", `🔧 ${b.name}  ${summarize(b.input)}`);
         }
         break;
       }
@@ -148,74 +133,108 @@ export default function App() {
         const content = (evt.message && evt.message.content) || [];
         for (const b of content) if (b.type === "tool_result") {
           const t = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((c) => c.text || "").join("") : "";
-          if (t.trim()) addMsg("result", "↳ " + truncate(t, 400));
+          if (t.trim()) addMsgTo(id, "result", "↳ " + truncate(t, 400));
         }
         break;
       }
-      case "result": if (evt.total_cost_usd != null) addMsg("sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`); break;
+      case "result": if (evt.total_cost_usd != null) addMsgTo(id, "sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`); break;
       case "approval_request":
-        addMsg("approval", "", { tool: evt.tool, input: evt.input, reqId: evt.id, decided: null });
-        addInbox("approval", `✋ Approval: ${evt.tool}`, describeTool(evt.tool, evt.input));
+        addMsgTo(id, "approval", "", { tool: evt.tool, input: evt.input, reqId: evt.id, decided: null });
+        addInbox("approval", `✋ ${evt.tool} — ${labelFor(id)}`, describeTool(evt.tool, evt.input));
         break;
-      case "vapid": if (settingsRef.current.notifications) registerPush(); break;
-      case "turn_complete": setBusy(false); addInbox("done", "✓ Claude finished a task"); break;
-      case "busy": addMsg("sys", "CLI is busy with another prompt — try again in a sec."); setBusy(false); break;
-      case "error": addMsg("err", evt.text); setBusy(false); break;
+      case "vapid": if (settingsRef.current.notifications) registerPush(id); break;
+      case "turn_complete": setBusyFor(id, false); addInbox("done", `✓ Finished — ${labelFor(id)}`); break;
+      case "busy": addMsgTo(id, "sys", "CLI is busy with another prompt — try again in a sec."); setBusyFor(id, false); break;
+      case "error": addMsgTo(id, "err", evt.text); setBusyFor(id, false); break;
       default: break;
     }
   }
 
-  async function registerPush() {
+  function openSock(sess, state) {
+    clearTimeout(state.reconnect.timer);
+    try { state.sock && state.sock.close(); } catch {}
+    const sock = new WebSocket(sess.relayUrl);
+    state.sock = sock;
+    sock.onopen = () => {
+      state.reconnect.attempts = 0;
+      sock.send(JSON.stringify({ type: "join", room: sess.room, role: "viewer" }));
+      sendEncTo(sess.id, { type: "client_hello" });
+      setOnlineFor(sess.id, true); setStatusFor(sess.id, "connecting…");
+    };
+    sock.onclose = () => {
+      setOnlineFor(sess.id, false);
+      if (state.reconnect.closed) return;
+      setStatusFor(sess.id, "reconnecting…");
+      state.reconnect.attempts++;
+      state.reconnect.timer = setTimeout(() => openSock(sess, state), Math.min(1000 * state.reconnect.attempts, 8000));
+    };
+    sock.onerror = () => setStatusFor(sess.id, "connection error");
+    sock.onmessage = (e) => {
+      let msg; try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.type === "enc") { let inner; try { inner = JSON.parse(decrypt(state.key, msg.data)); } catch { return; } handle(sess.id, inner); return; }
+      handle(sess.id, msg);
+    };
+  }
+
+  function connectSession(sess) {
+    let st = conns.current.get(sess.id);
+    if (st && st.sock && (st.sock.readyState === 0 || st.sock.readyState === 1) && !st.reconnect.closed) return; // already live
+    st = st || { reconnect: { timer: null, attempts: 0, closed: false } };
+    st.key = keyFromB64url(sess.keyB64url);
+    st.label = sess.label;
+    st.reconnect.closed = false;
+    conns.current.set(sess.id, st);
+    openSock(sess, st);
+  }
+
+  function disconnectSession(id) {
+    const st = conns.current.get(id);
+    if (st) { st.reconnect.closed = true; clearTimeout(st.reconnect.timer); try { st.sock && st.sock.close(); } catch {} }
+    conns.current.delete(id);
+    setOnlineFor(id, false); setStatusFor(id, "offline");
+  }
+
+  async function registerPush(id) {
     if (!Notifications) return;
     try {
       const { status: perm } = await Notifications.requestPermissionsAsync();
       if (perm !== "granted") return;
       const tok = await Notifications.getExpoPushTokenAsync();
-      if (tok && tok.data) sendEnc({ type: "push_subscription", sub: { expoToken: tok.data } });
+      if (tok && tok.data) sendEncTo(id, { type: "push_subscription", sub: { expoToken: tok.data } });
     } catch {}
   }
 
-  // --- session actions -------------------------------------------------------
-  function connectTo(sess) {
-    const withKey = { ...sess, key: keyFromB64url(sess.keyB64url) };
-    activeSession.current = withKey;
-    setActiveId(sess.id);
-    setMessages([]); messagesRef.current = [];
-    reconnect.current.closed = false;
-    openSocket();
-    setTab("chat");
-  }
+  // --- actions ---------------------------------------------------------------
+  function connectTo(sess) { connectSession(sess); setActiveId(sess.id); setTab("chat"); }
 
   function addFromLink(text) {
     const parsed = parseConnectLink(text);
     if (!parsed) { alert("Couldn't read that link/QR. Use the one your CLI printed (it has the room + key)."); return; }
     const host = (parsed.relayUrl.match(/\/\/([^/:]+)/) || [])[1] || "relay";
-    const sess = { id: uid(), label: `${host.split(".")[0]} · ${parsed.room}`, relayUrl: parsed.relayUrl, room: parsed.room, keyB64url: parsed.keyB64url };
-    const next = [sess, ...sessions.filter((s) => !(s.room === sess.room && s.relayUrl === sess.relayUrl))];
+    const existing = sessions.find((s) => s.room === parsed.room && s.relayUrl === parsed.relayUrl);
+    const sess = existing
+      ? { ...existing, keyB64url: parsed.keyB64url }
+      : { id: uid(), label: `${host.split(".")[0]} · ${parsed.room}`, relayUrl: parsed.relayUrl, room: parsed.room, keyB64url: parsed.keyB64url };
+    const next = [sess, ...sessions.filter((s) => s.id !== sess.id)];
     persistSessions(next);
     setLinkText("");
     connectTo(sess);
   }
 
   function removeSession(id) {
+    disconnectSession(id);
     persistSessions(sessions.filter((s) => s.id !== id));
-    if (activeId === id) disconnect();
+    setMessagesMap((m) => { const n = { ...m }; delete n[id]; messagesRef.current = n; return n; });
+    if (activeId === id) setActiveId(null);
   }
 
   function saveRename() {
     if (!editing) return;
     const label = (editing.label || "").trim() || "Session";
     persistSessions(sessions.map((x) => (x.id === editing.id ? { ...x, label } : x)));
-    if (activeSession.current && activeSession.current.id === editing.id) activeSession.current.label = label;
+    const c = conns.current.get(editing.id);
+    if (c) c.label = label;
     setEditing(null);
-  }
-
-  function disconnect() {
-    reconnect.current.closed = true;
-    clearTimeout(reconnect.current.timer);
-    try { ws.current && ws.current.close(); } catch {}
-    activeSession.current = null;
-    setActiveId(null); setOnline(false); setStatus("offline");
   }
 
   function onScan({ data }) { setScanning(false); addFromLink(data); }
@@ -226,19 +245,34 @@ export default function App() {
 
   function send() {
     const text = input.trim();
-    if (!text) return;
-    sendEnc({ type: "prompt", text });
+    if (!text || !activeId) return;
+    sendEncTo(activeId, { type: "prompt", text });
     setInput("");
   }
-  function decide(id, decision) {
-    const card = messagesRef.current.find((x) => x.id === id);
-    setMessages((m) => { const next = m.map((x) => (x.id === id ? { ...x, decided: decision } : x)); messagesRef.current = next; return next; });
-    if (card && card.reqId) sendEnc({ type: "approval_response", id: card.reqId, decision });
+  function decide(msgId, decision) {
+    const list = messagesRef.current[activeId] || [];
+    const card = list.find((x) => x.id === msgId);
+    setMessagesMap((m) => {
+      const next = { ...m, [activeId]: (m[activeId] || []).map((x) => (x.id === msgId ? { ...x, decided: decision } : x)) };
+      messagesRef.current = next;
+      return next;
+    });
+    if (card && card.reqId) sendEncTo(activeId, { type: "approval_response", id: card.reqId, decision });
+  }
+
+  function clearEverything() {
+    for (const id of Array.from(conns.current.keys())) disconnectSession(id);
+    persistSessions([]); persistInbox([]); setMessagesMap({}); messagesRef.current = {}; setActiveId(null);
   }
 
   if (!ready) return <SafeAreaView style={s.safe}><StatusBar barStyle="light-content" /></SafeAreaView>;
 
-  // --- screens ---------------------------------------------------------------
+  const messages = messagesMap[activeId] || [];
+  const activeOnline = !!onlineMap[activeId];
+  const activeStatus = activeId ? (statusMap[activeId] || "offline") : "offline";
+  const activeBusy = !!busyMap[activeId];
+  const liveCount = Object.values(onlineMap).filter(Boolean).length;
+
   const TABS = [
     { key: "sessions", icon: "🖥️", label: "Sessions" },
     { key: "chat", icon: "💬", label: "Chat" },
@@ -252,7 +286,7 @@ export default function App() {
 
       {tab === "sessions" && (
         <View style={{ flex: 1 }}>
-          <Header title="Sessions" />
+          <Header title="Sessions" sub={liveCount ? `${liveCount} live` : null} />
           <ScrollView contentContainerStyle={{ padding: 14 }}>
             <TouchableOpacity style={s.primaryBtn} onPress={openScanner}><Text style={s.primaryBtnText}>📷  Add by scanning QR</Text></TouchableOpacity>
             <Text style={s.or}>or paste the connect link</Text>
@@ -262,32 +296,36 @@ export default function App() {
             <Text style={s.sectionLabel}>YOUR SESSIONS</Text>
             {sessions.length === 0 ? (
               <Text style={s.empty}>No sessions yet. Run <Text style={s.mono}>npx pocketcode</Text> on your computer and scan the QR.</Text>
-            ) : sessions.map((sess) => (
-              <View key={sess.id} style={s.sessionRow}>
-                <TouchableOpacity style={{ flex: 1 }} onPress={() => connectTo(sess)}>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <View style={[s.dot, { backgroundColor: activeId === sess.id && online ? C.green : C.muted, marginRight: 8, marginLeft: 0 }]} />
-                    <Text style={s.sessionLabel}>{sess.label}</Text>
-                  </View>
-                  <Text style={s.sessionSub}>{activeId === sess.id ? status : "tap to connect"}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setEditing({ id: sess.id, label: sess.label })}><Text style={s.remove}>✏️</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => removeSession(sess.id)}><Text style={s.remove}>🗑</Text></TouchableOpacity>
-              </View>
-            ))}
+            ) : sessions.map((sess) => {
+              const isLive = conns.current.has(sess.id);
+              return (
+                <View key={sess.id} style={[s.sessionRow, activeId === sess.id && { borderColor: C.accent }]}>
+                  <TouchableOpacity style={{ flex: 1 }} onPress={() => connectTo(sess)}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View style={[s.dot, { backgroundColor: onlineMap[sess.id] ? C.green : isLive ? C.amber : C.muted, marginRight: 8, marginLeft: 0 }]} />
+                      <Text style={s.sessionLabel}>{sess.label}</Text>
+                    </View>
+                    <Text style={s.sessionSub}>{isLive ? (statusMap[sess.id] || "connecting…") : "tap to connect"}</Text>
+                  </TouchableOpacity>
+                  {isLive ? <TouchableOpacity onPress={() => disconnectSession(sess.id)}><Text style={s.remove}>⏏️</Text></TouchableOpacity> : null}
+                  <TouchableOpacity onPress={() => setEditing({ id: sess.id, label: sess.label })}><Text style={s.remove}>✏️</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeSession(sess.id)}><Text style={s.remove}>🗑</Text></TouchableOpacity>
+                </View>
+              );
+            })}
           </ScrollView>
         </View>
       )}
 
       {tab === "chat" && (
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <Header title={activeSession.current ? activeSession.current.label : "Chat"} right={<View style={[s.dot, { backgroundColor: online ? C.green : C.red }]} />} sub={activeId ? status : null} />
+          <Header title={activeId ? labelFor(activeId) : "Chat"} right={activeId ? <View style={[s.dot, { backgroundColor: activeOnline ? C.green : C.red }]} /> : null} sub={activeId ? activeStatus : null} />
           {!activeId ? (
             <View style={s.center}><Text style={s.empty}>No active session. Pick one in the Sessions tab.</Text></View>
           ) : (
             <>
               <FlatList ref={listRef} style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} data={messages} keyExtractor={(it) => it.id} renderItem={({ item }) => <Bubble item={item} onDecide={decide} />} />
-              {busy ? <Text style={s.working}>Claude is working…</Text> : null}
+              {activeBusy ? <Text style={s.working}>Claude is working…</Text> : null}
               <View style={s.inputBar}>
                 <TextInput style={s.promptInput} placeholder="Ask Claude Code anything…" placeholderTextColor={C.muted} value={input} onChangeText={setInput} onSubmitEditing={send} returnKeyType="send" />
                 <TouchableOpacity style={s.sendBtn} onPress={send}><Text style={s.sendBtnText}>Send</Text></TouchableOpacity>
@@ -325,7 +363,6 @@ export default function App() {
             <Text style={s.sectionLabel}>DEFAULT RELAY</Text>
             <TextInput style={s.input} value={settings.defaultRelay} autoCapitalize="none" autoCorrect={false}
               onChangeText={(t) => persistSettings({ ...settings, defaultRelay: t })} />
-
             <View style={s.settingRow}>
               <View style={{ flex: 1 }}>
                 <Text style={s.settingTitle}>Notifications</Text>
@@ -334,11 +371,9 @@ export default function App() {
               <Switch value={settings.notifications} onValueChange={(v) => persistSettings({ ...settings, notifications: v })}
                 trackColor={{ true: C.accent, false: C.border }} />
             </View>
-
-            <TouchableOpacity style={[s.secondaryBtn, { marginTop: 18 }]} onPress={() => { persistSessions([]); persistInbox([]); disconnect(); }}>
+            <TouchableOpacity style={[s.secondaryBtn, { marginTop: 18 }]} onPress={clearEverything}>
               <Text style={[s.secondaryBtnText, { color: C.red }]}>Clear all sessions & history</Text>
             </TouchableOpacity>
-
             <Text style={s.sectionLabel}>ABOUT</Text>
             <Text style={s.aboutText}>PocketCode v{APP_VERSION}</Text>
             <Text style={s.aboutMuted}>Control Claude Code from your phone — end-to-end encrypted.</Text>
@@ -348,12 +383,12 @@ export default function App() {
         </View>
       )}
 
-      {/* bottom tab bar */}
       <View style={s.tabBar}>
         {TABS.map((t) => (
           <TouchableOpacity key={t.key} style={s.tabBtn} onPress={() => setTab(t.key)}>
             <Text style={[s.tabIcon, tab === t.key && { opacity: 1 }]}>{t.icon}</Text>
             <Text style={[s.tabLabel, tab === t.key && { color: C.accent }]}>{t.label}</Text>
+            {t.key === "sessions" && liveCount > 0 ? <View style={s.badge} /> : null}
             {t.key === "inbox" && inbox.length > 0 ? <View style={s.badge} /> : null}
           </TouchableOpacity>
         ))}
@@ -453,7 +488,6 @@ const s = StyleSheet.create({
   logoSmall: { fontSize: 18, color: C.accent, marginRight: 8 },
   headerTitle: { fontSize: 17, fontWeight: "700", color: C.text },
   headerSub: { fontSize: 11, color: C.muted },
-  // buttons / inputs
   primaryBtn: { backgroundColor: C.accent, borderRadius: 12, padding: 15, alignItems: "center" },
   primaryBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   or: { color: C.muted, textAlign: "center", marginVertical: 12, fontSize: 13 },
@@ -461,13 +495,11 @@ const s = StyleSheet.create({
   secondaryBtn: { borderColor: C.border, borderWidth: 1, borderRadius: 10, padding: 12, alignItems: "center", marginTop: 10 },
   secondaryBtnText: { color: C.text, fontWeight: "600", fontSize: 15 },
   sectionLabel: { color: C.muted, fontSize: 11, fontWeight: "700", letterSpacing: 1, marginTop: 24, marginBottom: 10 },
-  // sessions
   sessionRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   sessionLabel: { color: C.text, fontSize: 15, fontWeight: "600" },
   sessionSub: { color: C.muted, fontSize: 12, marginTop: 3, marginLeft: 16 },
-  remove: { fontSize: 18, paddingLeft: 12 },
+  remove: { fontSize: 17, paddingLeft: 12 },
   dot: { width: 9, height: 9, borderRadius: 5, marginLeft: "auto" },
-  // chat
   bubbleRow: { flexDirection: "column" },
   rowFull: { alignSelf: "stretch" },
   bubble: { maxWidth: "88%", padding: 11, borderRadius: 14, fontSize: 14, overflow: "hidden", color: C.text, lineHeight: 20 },
@@ -482,7 +514,6 @@ const s = StyleSheet.create({
   promptInput: { flex: 1, backgroundColor: C.bg, borderColor: C.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, color: C.text, fontSize: 15, marginRight: 10 },
   sendBtn: { backgroundColor: C.accent, borderRadius: 12, paddingHorizontal: 20, justifyContent: "center" },
   sendBtnText: { color: "#fff", fontWeight: "700" },
-  // approval
   approval: { backgroundColor: "#15120a", borderColor: "#4a3a14", borderWidth: 1, borderRadius: 14, padding: 13 },
   approvalHead: { color: C.amber, fontSize: 14, marginBottom: 8 },
   approvalBody: { backgroundColor: C.bg, borderColor: C.border, borderWidth: 1, borderRadius: 9, padding: 10, color: C.text, fontSize: 12, fontFamily: mono, marginBottom: 10 },
@@ -493,7 +524,6 @@ const s = StyleSheet.create({
   denyBtn: { backgroundColor: "#2a1416", borderColor: "#3a1c1c", borderWidth: 1, marginRight: 5 },
   denyText: { color: C.red, fontWeight: "800", fontSize: 14 },
   approvalDone: { color: C.muted, fontWeight: "600", fontSize: 13 },
-  // inbox
   inboxRow: { flexDirection: "row", alignItems: "center", backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, borderRadius: 12, padding: 13, marginBottom: 9 },
   inboxIcon: { fontSize: 18, marginRight: 12 },
   inboxTitle: { color: C.text, fontSize: 14 },
@@ -503,19 +533,16 @@ const s = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: 28 },
   modalCard: { backgroundColor: C.panel, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 18 },
   modalTitle: { color: C.text, fontSize: 16, fontWeight: "700", marginBottom: 12 },
-  // settings
   settingRow: { flexDirection: "row", alignItems: "center", marginTop: 22 },
   settingTitle: { color: C.text, fontSize: 15, fontWeight: "600" },
   settingSub: { color: C.muted, fontSize: 12, marginTop: 2 },
   aboutText: { color: C.text, fontSize: 14, fontWeight: "600" },
   aboutMuted: { color: C.muted, fontSize: 13, marginTop: 4 },
-  // tab bar
   tabBar: { flexDirection: "row", borderTopColor: C.border, borderTopWidth: 1, backgroundColor: C.panel, paddingBottom: Platform.OS === "ios" ? 6 : 0 },
   tabBtn: { flex: 1, alignItems: "center", paddingVertical: 9 },
   tabIcon: { fontSize: 20, opacity: 0.6 },
   tabLabel: { fontSize: 11, color: C.muted, marginTop: 2 },
   badge: { position: "absolute", top: 6, right: "30%", width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent },
-  // scanner
   scanWrap: { flex: 1, backgroundColor: "#000" },
   cancelScan: { position: "absolute", bottom: 44, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
   cancelScanText: { color: "#fff", fontSize: 16 },
