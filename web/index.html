@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>PocketCode — Viewer</title>
+<title>PocketCode</title>
 
-<!-- PWA: makes the page installable as a real app icon, fullscreen -->
+<!-- PWA: installable, fullscreen -->
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#07080c" />
 <link rel="icon" type="image/svg+xml" href="/icon.svg" />
@@ -16,29 +16,41 @@
 <style>
   :root{--bg:#07080c;--panel:#11131c;--border:#1d2030;--text:#e8eaf2;--muted:#8a8fa3;--accent:#7c5cff;--green:#3ddc84;--red:#ff6b6b;--amber:#febc2e;}
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;}
+  body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
   .mono{font-family:'JetBrains Mono',ui-monospace,monospace;}
   header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel);}
   .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--accent),var(--green));display:grid;place-items:center;font-size:14px;}
   header .title{font-weight:700;font-size:15px;}
+  header .htitle{font-size:16px;font-weight:700;}
+  header .hsub{font-size:11px;color:var(--muted);}
   header .conn{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;}
   header .conn .dot{width:8px;height:8px;border-radius:50%;background:var(--red);}
   header .conn.online .dot{background:var(--green);box-shadow:0 0 8px var(--green);}
 
-  /* connect panel */
-  .connect{margin:auto;max-width:380px;width:100%;padding:24px;}
-  .connect h2{font-size:20px;margin-bottom:6px;}
-  .connect p{color:var(--muted);font-size:13.5px;margin-bottom:20px;}
-  .field{margin-bottom:14px;}
-  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  main{flex:1;overflow-y:auto;}
+  .pad{padding:16px;}
+  .hidden{display:none !important;}
+  .btn{width:100%;background:linear-gradient(135deg,var(--accent),#9d6bff);color:#fff;border:none;border-radius:11px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;}
+  .btn2{width:100%;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:11px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px;}
   .field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-size:14px;outline:none;}
   .field input:focus{border-color:var(--accent);}
-  .btn{width:100%;background:linear-gradient(135deg,var(--accent),#9d6bff);color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;}
-  .btn:hover{opacity:.92;}
+  .or{color:var(--muted);text-align:center;margin:14px 0;font-size:13px;}
+  .seclabel{color:var(--muted);font-size:11px;font-weight:700;letter-spacing:1px;margin:22px 0 10px;}
+  .empty{color:var(--muted);text-align:center;font-size:14px;line-height:1.5;padding:30px 10px;}
+
+  /* sessions */
+  .srow{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:10px;}
+  .srow.active{border-color:var(--accent);}
+  .srow .main{flex:1;cursor:pointer;}
+  .srow .nm{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;}
+  .srow .sub{font-size:12px;color:var(--muted);margin-top:3px;margin-left:17px;}
+  .sdot{width:9px;height:9px;border-radius:50%;background:var(--muted);}
+  .sdot.green{background:var(--green);box-shadow:0 0 7px var(--green);}
+  .sdot.amber{background:var(--amber);}
+  .iconbtn{background:none;border:none;font-size:16px;cursor:pointer;padding:4px;}
 
   /* chat */
-  #chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}
-  .row{display:flex;flex-direction:column;}
+  #chat{display:flex;flex-direction:column;gap:10px;padding:16px;}
   .msg{max-width:88%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
   .user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}
   .ai{align-self:flex-start;background:var(--panel);border:1px solid var(--border);border-bottom-left-radius:4px;}
@@ -46,9 +58,7 @@
   .result{align-self:flex-start;background:#0d1018;border:1px solid var(--border);color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:12px;}
   .sys{align-self:center;color:var(--muted);font-size:12px;}
   .err{align-self:flex-start;background:#1a0d10;border:1px solid #3a1c1c;color:var(--red);font-size:13px;}
-
-  /* approval card */
-  .approval{align-self:stretch;background:#15120a;border:1px solid #4a3a14;border-radius:14px;padding:13px 14px;}
+  .approval{align-self:stretch;background:#15120a;border:1px solid #4a3a14;border-radius:14px;padding:13px;}
   .approval .ahead{font-size:14px;color:var(--amber);margin-bottom:8px;}
   .approval .ahead b{color:var(--text);}
   .approval .abody{background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:9px 11px;font-size:12.5px;color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;margin-bottom:10px;}
@@ -57,346 +67,443 @@
   .approval .abtns .approve{background:var(--green);color:#04210f;}
   .approval .abtns .deny{background:#2a1416;color:var(--red);border:1px solid #3a1c1c;}
   .approval .adone{font-size:13px;font-weight:600;color:var(--muted);}
+  .typing{align-self:flex-start;color:var(--muted);font-size:13px;font-style:italic;padding:0 16px;}
 
-  /* input bar */
   .inputbar{display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--border);background:var(--panel);}
   .inputbar input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none;}
   .inputbar input:focus{border-color:var(--accent);}
   .inputbar button{background:linear-gradient(135deg,var(--accent),#9d6bff);color:#fff;border:none;border-radius:12px;padding:0 20px;font-weight:600;cursor:pointer;font-size:14px;}
-  .inputbar button:disabled{opacity:.45;cursor:not-allowed;}
-  .hidden{display:none !important;}
-  .typing{align-self:flex-start;color:var(--muted);font-size:13px;font-style:italic;}
+
+  /* inbox */
+  .irow{display:flex;gap:12px;align-items:flex-start;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:9px;}
+  .irow .ic{font-size:18px;}
+  .irow .it{font-size:14px;}
+  .irow .idet{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:3px;word-break:break-word;}
+  .irow .itime{font-size:12px;color:var(--muted);margin-top:4px;}
+
+  /* settings */
+  .setrow{display:flex;align-items:center;margin-top:20px;}
+  .setrow .t{flex:1;}
+  .setrow .tt{font-size:15px;font-weight:600;}
+  .setrow .ts{font-size:12px;color:var(--muted);margin-top:2px;}
+  .about{color:var(--muted);font-size:13px;margin-top:4px;}
+  /* toggle */
+  .sw{position:relative;width:46px;height:28px;}
+  .sw input{display:none;}
+  .sw .tr{position:absolute;inset:0;background:var(--border);border-radius:14px;transition:.2s;}
+  .sw .kn{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.2s;}
+  .sw input:checked + .tr{background:var(--accent);}
+  .sw input:checked + .tr + .kn{transform:translateX(18px);}
+
+  /* tab bar */
+  .tabbar{display:flex;border-top:1px solid var(--border);background:var(--panel);padding-bottom:env(safe-area-inset-bottom);}
+  .tabbar button{flex:1;background:none;border:none;color:var(--muted);padding:9px 0;cursor:pointer;position:relative;}
+  .tabbar .ti{font-size:20px;opacity:.6;}
+  .tabbar .tl{font-size:11px;margin-top:2px;display:block;}
+  .tabbar button.active .ti{opacity:1;}
+  .tabbar button.active .tl{color:var(--accent);}
+  .tabbar .badge{position:absolute;top:6px;right:30%;width:8px;height:8px;border-radius:50%;background:var(--accent);}
 </style>
 </head>
 <body>
+
 <header>
   <div class="logo">⬡</div>
-  <div class="title">PocketCode <span class="mono" style="color:var(--muted);font-weight:400;font-size:12px;" id="roomLabel"></span></div>
-  <div class="conn" id="conn"><span class="dot"></span><span id="connText">offline</span></div>
+  <div>
+    <div class="htitle" id="hTitle">PocketCode</div>
+    <div class="hsub" id="hSub"></div>
+  </div>
+  <div class="conn" id="conn"><span class="dot"></span><span id="connText"></span></div>
 </header>
 
-<!-- connect panel -->
-<div class="connect" id="connectPanel">
-  <h2>Connect to a session</h2>
-  <p>Start the CLI on your computer (<span class="mono">npm run host</span>), then enter the room code it printed.</p>
-  <div class="field">
-    <label>Relay URL</label>
-    <input id="relayUrl" class="mono" />
+<!-- Sessions -->
+<main id="screen-sessions" class="pad">
+  <button class="btn" id="addPasteToggle">＋ Add a session</button>
+  <div id="addBox" class="hidden" style="margin-top:12px;">
+    <div class="field"><input id="linkInput" class="mono" placeholder="paste link: https://…/?room=…#k=…" autocomplete="off" /></div>
+    <button class="btn2" id="addLinkBtn">Add & connect →</button>
   </div>
-  <div class="field">
-    <label>Room code</label>
-    <input id="roomCode" class="mono" placeholder="e.g. a3f9c1" autocomplete="off" />
-  </div>
-  <button class="btn" id="connectBtn">Connect →</button>
-</div>
+  <div class="seclabel">YOUR SESSIONS</div>
+  <div id="sessionList"></div>
+</main>
 
-<!-- chat (hidden until connected) -->
-<div id="chat" class="hidden"></div>
+<!-- Chat -->
+<main id="screen-chat" class="hidden" style="display:flex;flex-direction:column;">
+  <div id="chatEmpty" class="empty">No active session. Pick one in the Sessions tab.</div>
+  <div id="chat" style="flex:1;"></div>
+</main>
 <div class="inputbar hidden" id="inputbar">
   <input id="promptInput" placeholder="Ask Claude Code anything…" autocomplete="off" />
   <button id="sendBtn">Send</button>
 </div>
 
+<!-- Inbox -->
+<main id="screen-inbox" class="hidden pad">
+  <div id="inboxList"></div>
+</main>
+
+<!-- Settings -->
+<main id="screen-settings" class="hidden pad">
+  <div class="seclabel">DEFAULT RELAY</div>
+  <div class="field"><input id="defaultRelay" class="mono" autocomplete="off" /></div>
+  <div class="setrow">
+    <div class="t"><div class="tt">Notifications</div><div class="ts">Buzz for approvals & finished tasks</div></div>
+    <label class="sw"><input type="checkbox" id="notifToggle" /><span class="tr"></span><span class="kn"></span></label>
+  </div>
+  <button class="btn2" id="clearBtn" style="margin-top:18px;color:var(--red);border-color:#3a1c1c;">Clear all sessions & history</button>
+  <div class="seclabel">ABOUT</div>
+  <div style="font-weight:600;">PocketCode</div>
+  <div class="about">Control Claude Code from your phone — end-to-end encrypted.</div>
+  <div class="about">github.com/aqsa-svg/pocketcode-app</div>
+  <div class="about" style="margin-top:10px;">Not affiliated with Anthropic.</div>
+</main>
+
+<!-- Tab bar -->
+<nav class="tabbar" id="tabbar">
+  <button data-tab="sessions" class="active"><span class="ti">🖥️</span><span class="tl">Sessions</span><span class="badge hidden" id="badge-sessions"></span></button>
+  <button data-tab="chat"><span class="ti">💬</span><span class="tl">Chat</span></button>
+  <button data-tab="inbox"><span class="ti">📥</span><span class="tl">Inbox</span><span class="badge hidden" id="badge-inbox"></span></button>
+  <button data-tab="settings"><span class="ti">⚙️</span><span class="tl">Settings</span></button>
+</nav>
+
 <script>
-  const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
+const DEFAULT_RELAY = "wss://" + (location.host || "pocketcode-relay.onrender.com");
+let seq = 0; const uid = () => `${Date.now()}-${++seq}`;
+
+// --- storage ---------------------------------------------------------------
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+let sessions = load("pc_sessions", []);
+let inbox = load("pc_inbox", []);
+let settings = load("pc_settings", { defaultRelay: DEFAULT_RELAY, notifications: true });
+
+// --- crypto (AES-256-GCM, Web Crypto) --------------------------------------
+function b64urlToBytes(s){ s=s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4)s+="="; const b=atob(s),o=new Uint8Array(b.length); for(let i=0;i<b.length;i++)o[i]=b.charCodeAt(i); return o; }
+function b64ToBytes(s){ const b=atob(s),o=new Uint8Array(b.length); for(let i=0;i<b.length;i++)o[i]=b.charCodeAt(i); return o; }
+function bytesToB64(bytes){ let b=""; for(const x of bytes) b+=String.fromCharCode(x); return btoa(b); }
+async function importKey(b64url){ return crypto.subtle.importKey("raw", b64urlToBytes(b64url), "AES-GCM", false, ["encrypt","decrypt"]); }
+async function enc(key, plaintext){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ctTag = new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(plaintext)));
+  const blob = new Uint8Array(12 + ctTag.length); blob.set(iv,0); blob.set(ctTag,12);
+  return bytesToB64(blob);
+}
+async function dec(key, b64){
+  const blob = b64ToBytes(b64);
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv: blob.subarray(0,12)}, key, blob.subarray(12));
+  return new TextDecoder().decode(pt);
+}
+
+// --- link parsing ----------------------------------------------------------
+function parseLink(text){
+  if(!text) return null;
+  const room = (text.match(/[?&]room=([^&#\s]+)/) || [])[1];
+  const keyB64 = (text.match(/[#&?]k=([A-Za-z0-9_\-]+)/) || [])[1];
+  if(!room || !keyB64) return null;
+  let relayUrl = settings.defaultRelay || DEFAULT_RELAY;
+  const origin = text.match(/^(https?):\/\/([^/?#\s]+)/);
+  if(origin) relayUrl = (origin[1]==="https"?"wss":"ws") + "://" + origin[2];
+  return { relayUrl, room, keyB64url: keyB64 };
+}
+
+// --- connections (one socket per session) ----------------------------------
+const conns = new Map();   // id -> { ws, key, reconnect:{timer,attempts,closed}, online, status }
+const messages = new Map(); // id -> [ {id,kind,text,...} ]
+const busy = new Map();     // id -> bool
+let activeId = null;
+let tab = "sessions";
+
+function labelFor(id){ const s = sessions.find(x=>x.id===id); return s ? s.label : "session"; }
+function msgs(id){ if(!messages.has(id)) messages.set(id, []); return messages.get(id); }
+
+function addInbox(kind, title, detail){
+  inbox.unshift({ id: uid(), ts: Date.now(), kind, title, detail: detail||"" });
+  inbox = inbox.slice(0,200); save("pc_inbox", inbox);
+  if(tab==="inbox") renderInbox(); updateBadges();
+}
+
+function connectSession(sess){
+  let st = conns.get(sess.id);
+  if(st && st.ws && (st.ws.readyState===0 || st.ws.readyState===1) && !st.reconnect.closed) return;
+  st = st || { reconnect:{timer:null,attempts:0,closed:false} };
+  st.reconnect.closed = false;
+  conns.set(sess.id, st);
+  importKey(sess.keyB64url).then((key)=>{ st.key = key; openSock(sess, st); });
+}
+function openSock(sess, st){
+  clearTimeout(st.reconnect.timer);
+  try { st.ws && st.ws.close(); } catch {}
+  const ws = new WebSocket(sess.relayUrl);
+  st.ws = ws;
+  ws.onopen = async () => {
+    st.reconnect.attempts = 0;
+    ws.send(JSON.stringify({ type:"join", room: sess.room, role:"viewer" }));
+    ws.send(JSON.stringify({ type:"enc", data: await enc(st.key, JSON.stringify({type:"client_hello"})) }));
+    setStatus(sess.id, true, "connecting…");
+  };
+  ws.onclose = () => {
+    setStatus(sess.id, false, "reconnecting…");
+    if(st.reconnect.closed) return;
+    st.reconnect.attempts++;
+    st.reconnect.timer = setTimeout(()=>openSock(sess, st), Math.min(1000*st.reconnect.attempts, 8000));
+  };
+  ws.onerror = () => setStatus(sess.id, false, "connection error");
+  ws.onmessage = async (e) => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if(m.type==="enc"){ let inner; try { inner = JSON.parse(await dec(st.key, m.data)); } catch { return; } handle(sess.id, inner); return; }
+    handle(sess.id, m);
+  };
+}
+function disconnectSession(id){
+  const st = conns.get(id);
+  if(st){ st.reconnect.closed = true; clearTimeout(st.reconnect.timer); try { st.ws && st.ws.close(); } catch {} }
+  conns.delete(id);
+  if(tab==="sessions") renderSessions();
+  if(id===activeId) renderConn();
+  updateBadges();
+}
+
+function setStatus(id, online, status){
+  const st = conns.get(id); if(st){ st.online = online; st.status = status; }
+  if(tab==="sessions") renderSessions();
+  if(id===activeId) renderConn();
+  updateBadges();
+}
+
+function handle(id, msg){
+  if(msg.type==="joined"){ setStatus(id, true, "online"); return; }
+  if(msg.type==="status"){ setStatus(id, !!msg.hostOnline, msg.hostOnline ? "online · CLI connected" : "waiting for CLI…"); return; }
+  if(msg.type!=="event") return;
+  render(id, msg.event);
+}
+
+function addMsg(id, kind, text, extra){
+  msgs(id).push(Object.assign({ id: uid(), kind, text }, extra||{}));
+  if(id===activeId && tab==="chat") renderChat();
+}
+
+function render(id, evt){
+  if(!evt || !evt.type) return;
+  switch(evt.type){
+    case "user_prompt": addMsg(id,"user",evt.text); busy.set(id,true); if(id===activeId) renderChat(); break;
+    case "system": if(evt.subtype==="init") addMsg(id,"sys",`session started · ${evt.model||"claude"}`); break;
+    case "assistant": {
+      const content = (evt.message&&evt.message.content)||[];
+      for(const b of content){
+        if(b.type==="text" && b.text.trim()) addMsg(id,"ai",b.text);
+        else if(b.type==="tool_use") addMsg(id,"tool",`🔧 ${b.name}  ${summarize(b.input)}`);
+      } break;
+    }
+    case "user": {
+      const content=(evt.message&&evt.message.content)||[];
+      for(const b of content) if(b.type==="tool_result"){
+        const t=typeof b.content==="string"?b.content:(Array.isArray(b.content)?b.content.map(c=>c.text||"").join(""):"");
+        if(t.trim()) addMsg(id,"result","↳ "+truncate(t,400));
+      } break;
+    }
+    case "result": if(evt.total_cost_usd!=null) addMsg(id,"sys",`done · $${Number(evt.total_cost_usd).toFixed(4)}`); break;
+    case "approval_request":
+      addMsg(id,"approval","",{ tool:evt.tool, input:evt.input, reqId:evt.id, decided:null });
+      addInbox("approval", `✋ ${evt.tool} — ${labelFor(id)}`, describeTool(evt.tool, evt.input));
+      break;
+    case "vapid": if(settings.notifications) setupPush(id, evt.key); break;
+    case "turn_complete": busy.set(id,false); if(id===activeId) renderChat(); addInbox("done", `✓ Finished — ${labelFor(id)}`); break;
+    case "busy": addMsg(id,"sys","CLI is busy with another prompt — try again in a sec."); busy.set(id,false); break;
+    case "error": addMsg(id,"err",evt.text); busy.set(id,false); break;
+  }
+}
+
+async function sendEnc(id, obj){
+  const st = conns.get(id);
+  if(!st || !st.ws || st.ws.readyState!==1 || !st.key) return;
+  st.ws.send(JSON.stringify({ type:"enc", data: await enc(st.key, JSON.stringify(obj)) }));
+}
+
+// --- push ------------------------------------------------------------------
+let pushDone = false;
+async function setupPush(id, vapidKey){
+  if(pushDone || !vapidKey) return;
+  if(!("serviceWorker" in navigator) || !("PushManager" in window) || !window.Notification) return;
+  try{
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    let perm = Notification.permission;
+    if(perm==="default") perm = await Notification.requestPermission();
+    if(perm!=="granted") return;
+    const existing = await reg.pushManager.getSubscription();
+    if(existing){ try { await existing.unsubscribe(); } catch {} }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64urlToBytes(vapidKey) });
+    await sendEnc(id, { type:"push_subscription", sub: sub.toJSON() });
+    pushDone = true;
+  }catch{}
+}
+
+// --- actions ---------------------------------------------------------------
+function persistSessions(){ save("pc_sessions", sessions); }
+function addFromLink(text){
+  const p = parseLink(text);
+  if(!p){ alert("Couldn't read that link. Use the QR / link your CLI printed (it has the room + key)."); return; }
+  const host = (p.relayUrl.match(/\/\/([^/:]+)/)||[])[1] || "relay";
+  let sess = sessions.find(s=>s.room===p.room && s.relayUrl===p.relayUrl);
+  if(sess){ sess.keyB64url = p.keyB64url; }
+  else { sess = { id: uid(), label: `${host.split(".")[0]} · ${p.room}`, relayUrl: p.relayUrl, room: p.room, keyB64url: p.keyB64url }; sessions.unshift(sess); }
+  persistSessions();
+  $("linkInput").value = ""; $("addBox").classList.add("hidden");
+  connectTo(sess.id);
+}
+function connectTo(id){ const sess = sessions.find(s=>s.id===id); if(!sess) return; connectSession(sess); activeId = id; switchTab("chat"); }
+function removeSession(id){ disconnectSession(id); sessions = sessions.filter(s=>s.id!==id); persistSessions(); messages.delete(id); if(activeId===id) activeId=null; renderSessions(); }
+function renameSession(id){ const s = sessions.find(x=>x.id===id); if(!s) return; const v = prompt("Rename session", s.label); if(v && v.trim()){ s.label = v.trim(); persistSessions(); renderSessions(); renderConn(); } }
+async function decide(msgId, decision){
+  const list = msgs(activeId); const card = list.find(x=>x.id===msgId);
+  if(card){ card.decided = decision; renderChat(); if(card.reqId) await sendEnc(activeId, { type:"approval_response", id: card.reqId, decision }); }
+}
+async function send(){
+  const text = $("promptInput").value.trim();
+  if(!text || !activeId) return;
+  await sendEnc(activeId, { type:"prompt", text });
+  $("promptInput").value = "";
+}
+function clearAll(){
+  if(!confirm("Clear all sessions and history?")) return;
+  for(const id of Array.from(conns.keys())) disconnectSession(id);
+  sessions=[]; inbox=[]; messages.clear(); activeId=null;
+  save("pc_sessions",[]); save("pc_inbox",[]);
+  renderSessions(); renderInbox(); renderConn(); updateBadges();
+}
+
+// --- rendering -------------------------------------------------------------
+function switchTab(name){
+  tab = name;
+  for(const sc of ["sessions","chat","inbox","settings"]) $("screen-"+sc).classList.toggle("hidden", sc!==name);
+  $("inputbar").classList.toggle("hidden", !(name==="chat" && activeId));
+  document.querySelectorAll(".tabbar button").forEach(b=>b.classList.toggle("active", b.dataset.tab===name));
+  $("hTitle").textContent = name==="chat" ? (activeId?labelFor(activeId):"Chat") : (name[0].toUpperCase()+name.slice(1));
+  if(name==="sessions") renderSessions();
+  if(name==="chat") { renderChat(); renderConn(); }
+  if(name==="inbox") renderInbox();
+  renderConn();
+}
+
+function renderConn(){
+  const showConn = tab==="chat" && activeId;
+  $("conn").style.display = showConn ? "flex" : "none";
+  if(!showConn){ $("hSub").textContent = ""; return; }
+  const st = conns.get(activeId);
+  const online = st && st.online;
+  $("conn").classList.toggle("online", !!online);
+  $("connText").textContent = st ? (st.status||"offline") : "offline";
+  $("hSub").textContent = "";
+}
+
+function renderSessions(){
+  const live = Array.from(conns.values()).filter(c=>c.online).length;
+  $("hSub").textContent = "";
+  const el = $("sessionList");
+  if(sessions.length===0){ el.innerHTML = '<div class="empty">No sessions yet. Run <span class="mono">npx pocketcode</span> on your computer and open the link/QR it prints.</div>'; updateBadges(); return; }
+  el.innerHTML = "";
+  for(const s of sessions){
+    const st = conns.get(s.id);
+    const isLive = !!st;
+    const dotCls = st && st.online ? "green" : isLive ? "amber" : "";
+    const row = document.createElement("div");
+    row.className = "srow" + (activeId===s.id ? " active" : "");
+    row.innerHTML =
+      `<div class="main"><div class="nm"><span class="sdot ${dotCls}"></span>${escapeHtml(s.label)}</div>`+
+      `<div class="sub">${isLive ? (st.status||"connecting…") : "tap to connect"}</div></div>`+
+      (isLive ? `<button class="iconbtn" data-act="disc">⏏️</button>` : ``)+
+      `<button class="iconbtn" data-act="ren">✏️</button>`+
+      `<button class="iconbtn" data-act="del">🗑</button>`;
+    row.querySelector(".main").onclick = () => connectTo(s.id);
+    const discBtn = row.querySelector('[data-act="disc"]'); if(discBtn) discBtn.onclick = () => disconnectSession(s.id);
+    row.querySelector('[data-act="ren"]').onclick = () => renameSession(s.id);
+    row.querySelector('[data-act="del"]').onclick = () => removeSession(s.id);
+    el.appendChild(row);
+  }
+  updateBadges();
+}
+
+function renderChat(){
+  $("chatEmpty").classList.toggle("hidden", !!activeId);
+  $("chat").classList.toggle("hidden", !activeId);
+  $("inputbar").classList.toggle("hidden", !(tab==="chat" && activeId));
+  if(!activeId){ return; }
+  const chat = $("chat"); chat.innerHTML = "";
+  for(const m of msgs(activeId)){
+    if(m.kind==="approval"){
+      const detail = describeTool(m.tool, m.input);
+      const card = document.createElement("div"); card.className="approval";
+      card.innerHTML = `<div class="ahead">✋ Allow <b>${escapeHtml(m.tool||"tool")}</b>?</div>`+
+        (detail?`<div class="abody mono">${escapeHtml(truncate(detail,300))}</div>`:``)+
+        (m.decided?`<div class="adone">${m.decided==="allow"?"✓ Approved":"✗ Denied"}</div>`:
+          `<div class="abtns"><button class="deny">Deny</button><button class="approve">Approve</button></div>`);
+      if(!m.decided){ card.querySelector(".approve").onclick=()=>decide(m.id,"allow"); card.querySelector(".deny").onclick=()=>decide(m.id,"deny"); }
+      chat.appendChild(card);
+    } else {
+      const d = document.createElement("div"); d.className="msg "+m.kind; d.textContent=m.text; chat.appendChild(d);
+    }
+  }
+  if(busy.get(activeId)){ const t=document.createElement("div"); t.className="typing"; t.textContent="Claude is working…"; chat.appendChild(t); }
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function renderInbox(){
+  $("hSub").textContent = "";
+  const el = $("inboxList");
+  if(inbox.length===0){ el.innerHTML = '<div class="empty">No activity yet. Approvals and finished tasks show up here.</div>'; return; }
+  el.innerHTML = "";
+  for(const it of inbox){
+    const row = document.createElement("div"); row.className="irow";
+    row.innerHTML = `<div class="ic">${it.kind==="approval"?"✋":"✓"}</div><div style="flex:1;">`+
+      `<div class="it">${escapeHtml(it.title)}</div>`+
+      (it.detail?`<div class="idet">${escapeHtml(it.detail)}</div>`:``)+
+      `<div class="itime">${timeAgo(it.ts)}</div></div>`;
+    el.appendChild(row);
+  }
+}
+
+function updateBadges(){
+  const live = Array.from(conns.values()).length;
+  $("badge-sessions").classList.toggle("hidden", live===0);
+  $("badge-inbox").classList.toggle("hidden", inbox.length===0);
+}
+
+// --- helpers ---------------------------------------------------------------
+function summarize(input){ return input ? truncate(JSON.stringify(input),80) : ""; }
+function truncate(s,n){ return s.length>n ? s.slice(0,n)+"…" : s; }
+function describeTool(tool,input){ input=input||{}; if(tool==="Bash")return input.command||""; if(tool==="Edit"||tool==="Write"||tool==="NotebookEdit")return input.file_path||input.notebook_path||""; if(tool==="WebFetch")return input.url||""; return truncate(JSON.stringify(input),160); }
+function timeAgo(ts){ const m=Math.floor(Math.max(0,Date.now()-ts)/60000); if(m<1)return "just now"; if(m<60)return m+"m ago"; const h=Math.floor(m/60); if(h<24)return h+"h ago"; return Math.floor(h/24)+"d ago"; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// --- wire up UI ------------------------------------------------------------
+document.querySelectorAll(".tabbar button").forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+$("addPasteToggle").onclick=()=>$("addBox").classList.toggle("hidden");
+$("addLinkBtn").onclick=()=>addFromLink($("linkInput").value.trim());
+$("linkInput").addEventListener("keydown",e=>{ if(e.key==="Enter") addFromLink($("linkInput").value.trim()); });
+$("sendBtn").onclick=send;
+$("promptInput").addEventListener("keydown",e=>{ if(e.key==="Enter") send(); });
+$("defaultRelay").value = settings.defaultRelay;
+$("defaultRelay").addEventListener("change",()=>{ settings.defaultRelay = $("defaultRelay").value.trim()||DEFAULT_RELAY; save("pc_settings",settings); });
+$("notifToggle").checked = !!settings.notifications;
+$("notifToggle").addEventListener("change",()=>{ settings.notifications = $("notifToggle").checked; save("pc_settings",settings); });
+$("clearBtn").onclick=clearAll;
+
+// If opened from a QR/link (?room=…#k=…), auto-add that session and connect.
+(function bootstrap(){
+  if(!(window.crypto && crypto.subtle)){ document.querySelector("main").innerHTML = '<div class="empty">This page needs a secure (https) connection for encryption.</div>'; }
   const params = new URLSearchParams(location.search);
-
-  // The encryption key rides in the URL #fragment (never sent to the server).
-  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const keyB64url = hashParams.get("k") || "";
-  let cryptoKey = null; // imported CryptoKey, set on load
-
-  // Remember the last room so re-launching from the home-screen icon
-  // doesn't make you retype it.
-  const savedRoom = (() => { try { return localStorage.getItem("pc_room") || ""; } catch { return ""; } })();
-  const roomFromUrl = params.get("room");
-  $("roomCode").value = roomFromUrl || savedRoom;
-
-  // --- crypto helpers (AES-256-GCM via Web Crypto) -------------------------
-  // Wire format matches the Node host: iv(12) || ciphertext || authTag(16),
-  // base64. (Web Crypto appends the 16-byte tag to the ciphertext for us.)
-  function b64urlToBytes(s){ s=s.replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4)s+="="; const b=atob(s),o=new Uint8Array(b.length); for(let i=0;i<b.length;i++)o[i]=b.charCodeAt(i); return o; }
-  function b64ToBytes(s){ const b=atob(s),o=new Uint8Array(b.length); for(let i=0;i<b.length;i++)o[i]=b.charCodeAt(i); return o; }
-  function bytesToB64(bytes){ let b=""; for(const x of bytes) b+=String.fromCharCode(x); return btoa(b); }
-
-  async function importKey(){
-    const raw = b64urlToBytes(keyB64url);
-    return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt","decrypt"]);
+  const hash = new URLSearchParams(location.hash.replace(/^#/,""));
+  if(params.get("room") && hash.get("k")){
+    const fullLink = location.origin + location.pathname + location.search + location.hash;
+    // history.replaceState to drop the key from the visible URL after capture
+    addFromLink(fullLink);
+    try { history.replaceState(null,"",location.pathname); } catch {}
+  } else {
+    switchTab("sessions");
   }
-  async function enc(plaintext){
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ctTag = new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM", iv}, cryptoKey, new TextEncoder().encode(plaintext)));
-    const blob = new Uint8Array(12 + ctTag.length);
-    blob.set(iv, 0); blob.set(ctTag, 12);
-    return bytesToB64(blob);
-  }
-  async function dec(b64){
-    const blob = b64ToBytes(b64);
-    const iv = blob.subarray(0, 12);
-    const ctTag = blob.subarray(12);
-    const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv}, cryptoKey, ctTag);
-    return new TextDecoder().decode(pt);
-  }
-
-  // Default the relay URL smartly:
-  // - served over http/https (e.g. from the Render relay) -> same host, ws/wss
-  // - opened as a local file -> localhost
-  function defaultRelay() {
-    if (location.protocol === "https:") return "wss://" + location.host;
-    if (location.protocol === "http:") return "ws://" + location.host;
-    return "ws://localhost:8080";
-  }
-  $("relayUrl").value = params.get("relay") || defaultRelay();
-
-  let ws = null;
-  let typingEl = null;
-
-  function setConn(online, text){
-    $("conn").classList.toggle("online", online);
-    $("connText").textContent = text;
-  }
-  function addMsg(cls, text){
-    const el = document.createElement("div");
-    el.className = "msg " + cls;
-    el.textContent = text;
-    $("chat").appendChild(el);
-    $("chat").scrollTop = $("chat").scrollHeight;
-    return el;
-  }
-  function clearTyping(){ if(typingEl){ typingEl.remove(); typingEl=null; } }
-  function showTyping(){ clearTyping(); typingEl=document.createElement("div"); typingEl.className="typing"; typingEl.textContent="Claude is working…"; $("chat").appendChild(typingEl); $("chat").scrollTop=$("chat").scrollHeight; }
-
-  function setBusy(b){
-    $("sendBtn").disabled = b;
-    $("promptInput").disabled = b;
-    if (b) showTyping(); else clearTyping();
-  }
-
-  let curUrl = "", curRoom = "", reconnectTimer = null, reconnectAttempts = 0;
-
-  // Send an encrypted object to the host.
-  async function sendEnc(obj){
-    if (!ws || ws.readyState !== 1 || !cryptoKey) return;
-    ws.send(JSON.stringify({ type:"enc", data: await enc(JSON.stringify(obj)) }));
-  }
-
-  function connect(){
-    const url = $("relayUrl").value.trim();
-    const room = $("roomCode").value.trim();
-    if (!room) return alert("Enter the room code from the CLI.");
-    if (!cryptoKey) return alert("Missing encryption key — open this page via the QR code / link from your terminal.");
-    try { localStorage.setItem("pc_room", room); } catch {}
-    curUrl = url; curRoom = room;
-    // Asking now (a user gesture) means the push subscribe later won't be blocked.
-    try { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); } catch {}
-    openSocket();
-  }
-
-  function openSocket(){
-    clearTimeout(reconnectTimer);
-    ws = new WebSocket(curUrl);
-
-    ws.onopen = () => {
-      reconnectAttempts = 0;
-      ws.send(JSON.stringify({ type:"join", room: curRoom, role:"viewer" }));
-      sendEnc({ type:"client_hello" }); // ask the host for its push (VAPID) key
-      setConn(true, "connecting…");
-      $("connectPanel").classList.add("hidden");
-      $("chat").classList.remove("hidden");
-      $("inputbar").classList.remove("hidden");
-      $("roomLabel").textContent = "· room " + curRoom;
-      $("promptInput").focus();
-    };
-    ws.onclose = () => { setConn(false, "reconnecting…"); scheduleReconnect(); };
-    ws.onerror = () => setConn(false, "error — reconnecting…");
-    ws.onmessage = async (e) => {
-      let msg; try { msg = JSON.parse(e.data); } catch { return; }
-      // Encrypted payloads (events from the host) arrive as {type:"enc"}.
-      if (msg.type === "enc"){
-        let inner; try { inner = JSON.parse(await dec(msg.data)); } catch { return; }
-        handle(inner);
-        return;
-      }
-      handle(msg); // plaintext relay metadata (status / joined)
-    };
-  }
-
-  // Exponential-ish backoff so a dropped/sleeping relay reconnects on its own.
-  function scheduleReconnect(){
-    if (!curUrl) return;
-    reconnectAttempts++;
-    const delay = Math.min(1000 * reconnectAttempts, 8000);
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(openSocket, delay);
-  }
-
-  function handle(msg){
-    if (msg.type === "joined"){ setConn(true, "online"); return; }
-    if (msg.type === "status"){
-      setConn(msg.hostOnline, msg.hostOnline ? "online · CLI connected" : "waiting for CLI…");
-      return;
-    }
-    if (msg.type !== "event") return;
-    render(msg.event);
-  }
-
-  // Render one event from Claude Code (or a custom CLI event).
-  function render(evt){
-    if (!evt || !evt.type) return;
-    switch (evt.type){
-      case "user_prompt":
-        addMsg("user", evt.text); setBusy(true); break;
-
-      case "system": // init
-        if (evt.subtype === "init")
-          addMsg("sys", `session started · ${evt.model || "claude"}`);
-        break;
-
-      case "assistant": {
-        const content = (evt.message && evt.message.content) || [];
-        for (const block of content){
-          if (block.type === "text" && block.text.trim())
-            addMsg("ai", block.text);
-          else if (block.type === "tool_use")
-            addMsg("tool", `🔧 ${block.name}  ${summarize(block.input)}`);
-        }
-        break;
-      }
-
-      case "user": { // tool results
-        const content = (evt.message && evt.message.content) || [];
-        for (const block of content){
-          if (block.type === "tool_result"){
-            const txt = typeof block.content === "string"
-              ? block.content
-              : (Array.isArray(block.content) ? block.content.map(c=>c.text||"").join("") : "");
-            if (txt.trim()) addMsg("result", "↳ " + truncate(txt, 400));
-          }
-        }
-        break;
-      }
-
-      case "result":
-        if (evt.total_cost_usd != null)
-          addMsg("sys", `done · $${Number(evt.total_cost_usd).toFixed(4)}`);
-        break;
-
-      case "approval_request": addApproval(evt); break;
-      case "vapid": setupPush(evt.key); break;
-
-      case "turn_complete": setBusy(false); break;
-      case "busy": addMsg("sys", "CLI is busy with another prompt — try again in a sec."); setBusy(false); break;
-      case "stderr": /* usually noise; ignore in MVP */ break;
-      case "error": addMsg("err", evt.text); setBusy(false); break;
-    }
-  }
-
-  // Build a short, human-readable summary of what a tool wants to do.
-  function describeTool(tool, input){
-    input = input || {};
-    if (tool === "Bash") return input.command || "";
-    if (tool === "Edit" || tool === "Write" || tool === "NotebookEdit") return input.file_path || input.notebook_path || "";
-    if (tool === "WebFetch") return input.url || "";
-    return truncate(JSON.stringify(input), 160);
-  }
-
-  // Render an Approve / Deny card for a guarded tool the host is asking about.
-  function addApproval(evt){
-    const card = document.createElement("div");
-    card.className = "approval";
-    const detail = describeTool(evt.tool, evt.input);
-    card.innerHTML =
-      '<div class="ahead">✋ Allow <b>' + (evt.tool || "tool") + '</b>?</div>' +
-      (detail ? '<div class="abody mono"></div>' : '') +
-      '<div class="abtns"><button class="deny">Deny</button><button class="approve">Approve</button></div>';
-    if (detail) card.querySelector(".abody").textContent = truncate(detail, 300);
-    const finish = (decision, label) => {
-      sendApproval(evt.id, decision);
-      card.querySelector(".abtns").innerHTML = '<span class="adone">' + label + '</span>';
-    };
-    card.querySelector(".approve").onclick = () => finish("allow", "✓ Approved");
-    card.querySelector(".deny").onclick = () => finish("deny", "✗ Denied");
-    $("chat").appendChild(card);
-    $("chat").scrollTop = $("chat").scrollHeight;
-  }
-
-  async function sendApproval(id, decision){
-    await sendEnc({ type:"approval_response", id, decision });
-  }
-
-  // --- Push notifications ----------------------------------------------------
-  function urlB64ToUint8Array(base64){
-    const pad = "=".repeat((4 - (base64.length % 4)) % 4);
-    const b64 = (base64 + pad).replace(/-/g, "+").replace(/_/g, "/");
-    const raw = atob(b64);
-    const out = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
-    return out;
-  }
-
-  let pushReady = false;
-  // Called when the host sends its VAPID public key: register the service
-  // worker, subscribe to push, and send the subscription back to the host.
-  async function setupPush(vapidKey){
-    if (pushReady || !vapidKey) return;
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    try {
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      if (!window.Notification) return;
-      let perm = Notification.permission;
-      if (perm === "default") perm = await Notification.requestPermission();
-      if (perm !== "granted") return;
-      // The VAPID key is per host-session, so drop any stale subscription first.
-      const existing = await reg.pushManager.getSubscription();
-      if (existing) { try { await existing.unsubscribe(); } catch {} }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlB64ToUint8Array(vapidKey),
-      });
-      await sendEnc({ type:"push_subscription", sub: sub.toJSON() });
-      pushReady = true;
-      addMsg("sys", "🔔 notifications on — your phone will buzz for approvals");
-    } catch {
-      /* push unavailable (e.g. iOS not installed to home screen) — app still works */
-    }
-  }
-
-  function summarize(input){
-    if (!input) return "";
-    const s = JSON.stringify(input);
-    return truncate(s, 80);
-  }
-  function truncate(s, n){ return s.length > n ? s.slice(0, n) + "…" : s; }
-
-  async function send(){
-    const text = $("promptInput").value.trim();
-    if (!text || !ws || ws.readyState !== 1 || !cryptoKey) return;
-    const data = await enc(JSON.stringify({ type:"prompt", text }));
-    ws.send(JSON.stringify({ type:"enc", data }));
-    $("promptInput").value = "";
-  }
-
-  $("connectBtn").onclick = connect;
-  $("sendBtn").onclick = send;
-  $("promptInput").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
-  $("roomCode").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
-
-  // On load: import the key from the link. Without it we can't decrypt, so
-  // guide the user to open the QR/link from their terminal instead.
-  (async () => {
-    if (!keyB64url || !(window.crypto && crypto.subtle)) {
-      $("connectPanel").innerHTML =
-        '<h2>🔒 Encryption key needed</h2>' +
-        '<p>Open PocketCode by <b>scanning the QR code</b> (or tapping the link) printed by ' +
-        '<span class="mono">npm run host</span> on your computer. The key travels inside that ' +
-        'link and is never sent to the server — so the relay can\'t read your session.</p>';
-      return;
-    }
-    try { cryptoKey = await importKey(); }
-    catch { cryptoKey = null; }
-    // Came in from a QR code / link (?room=…#k=…) → connect automatically.
-    if (roomFromUrl && cryptoKey) connect();
-  })();
+  renderSessions();
+})();
 </script>
 </body>
 </html>
