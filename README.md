@@ -87,7 +87,7 @@ Environment variables (all optional):
 | `ROOM` | random 6-char code | Fixed room code |
 | `VIEWER_URL` | derived from `RELAY_URL` | Override the link shown in the QR |
 
-### Run your own relay
+n### Run your own relay
 
 ```bash
 git clone https://github.com/aqsa-svg/pocketcode-app
