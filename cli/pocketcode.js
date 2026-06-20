@@ -294,6 +294,14 @@ function forward(event) {
 // with the Read tool (which can view images). The phone already shows the photo
 // it sent, so we run Claude WITHOUT echoing a user_prompt (displayText = null).
 const UPLOAD_DIR = path.join(os.tmpdir(), "pocketcode-uploads");
+// Create it now so we can pass it to Claude via --add-dir on every run (below).
+// That folder is outside the project, so without --add-dir Claude Code refuses
+// to Read images there and just asks for permission in text (with no button).
+try {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+} catch {
+  /* ignore */
+}
 
 function handleImage(inner) {
   if (busy) {
@@ -360,6 +368,9 @@ function runClaude(prompt, displayText) {
     "--verbose",
     "--settings",
     SETTINGS_FILE,
+    // Let Claude read photos saved in our temp upload folder without prompting.
+    "--add-dir",
+    UPLOAD_DIR,
   ];
   if (sessionId) args.push("--resume", sessionId);
 
