@@ -247,6 +247,7 @@ ws.on("message", (data) => {
       return;
     }
     if (inner.type === "prompt") runClaude(inner.text);
+    else if (inner.type === "image") handleImage(inner);
     else if (inner.type === "approval_response") {
       const resolve = pendingApprovals.get(inner.id);
       if (resolve) {
@@ -287,7 +288,52 @@ function forward(event) {
   }
 }
 
-function runClaude(prompt) {
+// --- photos from your phone -------------------------------------------------
+// The viewer can attach an image. It arrives base64-encoded inside an encrypted
+// {type:"image"} message. We write it to a temp file and ask Claude to open it
+// with the Read tool (which can view images). The phone already shows the photo
+// it sent, so we run Claude WITHOUT echoing a user_prompt (displayText = null).
+const UPLOAD_DIR = path.join(os.tmpdir(), "pocketcode-uploads");
+
+function handleImage(inner) {
+  if (busy) {
+    forward({ type: "busy" });
+    return;
+  }
+  // Buffer.from(...,"base64") is lenient and never throws — a bad/empty string
+  // just yields an empty buffer, so check length and tell the phone if it's empty
+  // (otherwise the phone's optimistic spinner would hang forever).
+  const buf = Buffer.from(String(inner.data || ""), "base64");
+  if (!buf.length) {
+    forward({ type: "error", text: "The photo came through empty — please try sending it again." });
+    return;
+  }
+  try {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const ext =
+    inner.mime === "image/png" ? "png" : inner.mime === "image/webp" ? "webp" : "jpg";
+  const file = path.join(UPLOAD_DIR, `${ROOM}-${Date.now()}.${ext}`);
+  try {
+    fs.writeFileSync(file, buf);
+  } catch (e) {
+    forward({ type: "error", text: `Couldn't save the photo on your computer: ${e.message}` });
+    return;
+  }
+  const caption = typeof inner.caption === "string" ? inner.caption.trim() : "";
+  const prompt =
+    "The user sent a photo from their phone. Open and view it with the Read tool, then respond.\n" +
+    `Image file: ${file}\n` +
+    (caption
+      ? `\nTheir message: ${caption}`
+      : "\n(No caption — describe what you see and ask what they'd like, unless the photo makes the task obvious.)");
+  console.log(`  🖼  photo received (${(buf.length / 1024).toFixed(0)} KB) → ${file}`);
+  runClaude(prompt, null);
+}
+
+function runClaude(prompt, displayText) {
   if (typeof prompt !== "string" || !prompt.trim()) return;
   if (busy) {
     forward({ type: "busy" });
@@ -295,9 +341,13 @@ function runClaude(prompt) {
   }
   busy = true;
 
-  // echo the prompt back so the viewer shows what was asked
-  forward({ type: "user_prompt", text: prompt });
-  console.log(`  ▶ prompt: ${prompt}`);
+  // echo the prompt back so the viewer shows what was asked. displayText===null
+  // means "don't echo" (the phone already rendered it, e.g. an attached photo).
+  if (displayText !== null) {
+    const shown = displayText || prompt;
+    forward({ type: "user_prompt", text: shown });
+    console.log(`  ▶ prompt: ${shown}`);
+  }
 
   // Claude Code in headless, streaming-JSON mode.
   // --resume keeps the SAME conversation across prompts.
