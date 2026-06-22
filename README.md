@@ -18,6 +18,7 @@ nothing runs on your machine until you **approve it from your phone**.
   finishes) — even with the app closed. Web Push payloads are encrypted to your
   browser, so push providers can't read them.
 - 📷 **Scan to connect.** No room codes to type.
+- 🖼️ **Send photos.** Snap or attach a photo on your phone and Claude opens it — perfect for screenshots and error messages.
 - 📲 **Installable.** Add the page to your home screen — it behaves like a real app.
 - ♻️ **Auto-reconnect.** Survives the relay sleeping or a flaky connection.
 
@@ -87,7 +88,7 @@ Environment variables (all optional):
 | `ROOM` | random 6-char code | Fixed room code |
 | `VIEWER_URL` | derived from `RELAY_URL` | Override the link shown in the QR |
 
-n### Run your own relay
+### Run your own relay
 
 ```bash
 git clone https://github.com/aqsa-svg/pocketcode-app
