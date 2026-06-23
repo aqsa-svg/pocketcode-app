@@ -28,7 +28,12 @@ const VIEWER_FILE = path.join(WEB_DIR, "index.html");
 const STATIC = {
   "/manifest.json": { file: "manifest.json", type: "application/manifest+json; charset=utf-8" },
   "/icon.svg": { file: "icon.svg", type: "image/svg+xml; charset=utf-8" },
+  "/icon-192.png": { file: "icon-192.png", type: "image/png" },
+  "/icon-512.png": { file: "icon-512.png", type: "image/png" },
   "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
+  // Android TWA verification (Play Store app ↔ this domain). Filled in once
+  // PWABuilder generates the app's signing-key fingerprint.
+  "/.well-known/assetlinks.json": { file: ".well-known/assetlinks.json", type: "application/json; charset=utf-8" },
 };
 
 // A real HTTP server that (a) serves the viewer web app + its assets, and
