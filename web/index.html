@@ -574,7 +574,7 @@ function renderSessions(){
   const live = Array.from(conns.values()).filter(c=>c.online).length;
   $("hSub").textContent = "";
   const el = $("sessionList");
-  if(sessions.length===0){ el.innerHTML = '<div class="empty"><svg class="big" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="eyebrow">No sessions</span>Run <span class="mono">npx pocketcode</span> on your computer, then scan the code it prints.</div>'; updateBadges(); return; }
+  if(sessions.length===0){ el.innerHTML = '<div class="empty"><svg class="big" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span class="eyebrow">No sessions</span>Run <span class="mono">npx github:aqsa-svg/pocketcode-app</span> on your computer, then scan the code it prints.</div>'; updateBadges(); return; }
   el.innerHTML = "";
   for(const s of sessions){
     const st = conns.get(s.id);

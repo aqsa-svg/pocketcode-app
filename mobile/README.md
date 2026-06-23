@@ -16,8 +16,8 @@ npx expo start
 Then open it on your phone with **[Expo Go](https://expo.dev/go)**:
 scan the Expo dev QR with Expo Go (Android) or the Camera app (iOS).
 
-In the app, tap **Scan QR code** and point it at the QR that `npx pocketcode`
-prints on your computer. You're connected — encrypted, with approval cards.
+In the app, tap **Scan QR code** and point it at the QR that
+`npx github:aqsa-svg/pocketcode-app` prints on your computer. You're connected — encrypted, with approval cards.
 
 > Tip: you can also **paste** the connect link instead of scanning.
 

@@ -35,7 +35,7 @@ computer you want to control.
 On that computer, run:
 
 ```bash
-npx pocketcode
+npx github:aqsa-svg/pocketcode-app
 ```
 
 It prints a **QR code**. Scan it with your phone's camera — the PocketCode page
@@ -99,7 +99,7 @@ npm run relay        # listens on :8080 (or $PORT), serves the viewer at /
 Then point the host at it:
 
 ```bash
-RELAY_URL=wss://your-relay.example.com npx pocketcode
+RELAY_URL=wss://your-relay.example.com npx github:aqsa-svg/pocketcode-app
 ```
 
 A `render.yaml` is included for one-click deploy to Render's free tier.

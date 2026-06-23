@@ -295,7 +295,7 @@ export default function App() {
 
             <Text style={s.sectionLabel}>YOUR SESSIONS</Text>
             {sessions.length === 0 ? (
-              <Text style={s.empty}>No sessions yet. Run <Text style={s.mono}>npx pocketcode</Text> on your computer and scan the QR.</Text>
+              <Text style={s.empty}>No sessions yet. Run <Text style={s.mono}>npx github:aqsa-svg/pocketcode-app</Text> on your computer and scan the QR.</Text>
             ) : sessions.map((sess) => {
               const isLive = conns.current.has(sess.id);
               return (
