@@ -31,6 +31,8 @@ const STATIC = {
   "/icon-192.png": { file: "icon-192.png", type: "image/png" },
   "/icon-512.png": { file: "icon-512.png", type: "image/png" },
   "/sw.js": { file: "sw.js", type: "text/javascript; charset=utf-8" },
+  "/privacy.html": { file: "privacy.html", type: "text/html; charset=utf-8" },
+  "/privacy": { file: "privacy.html", type: "text/html; charset=utf-8" },
   // Android TWA verification (Play Store app ↔ this domain). Filled in once
   // PWABuilder generates the app's signing-key fingerprint.
   "/.well-known/assetlinks.json": { file: ".well-known/assetlinks.json", type: "application/json; charset=utf-8" },

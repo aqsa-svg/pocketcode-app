@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PocketCode — Privacy Policy</title>
+<style>
+  :root{--ground:#0B0B12;--surface:rgba(255,255,255,.04);--line:rgba(255,255,255,.09);--text:#EDEDF2;--muted:#9B9BAD;--accent:#F97316;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--ground);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65;padding:32px 20px 64px;}
+  main{max-width:720px;margin:0 auto;}
+  h1{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px;}
+  .updated{color:var(--muted);font-size:13px;margin-bottom:28px;}
+  h2{font-size:17px;font-weight:600;margin:26px 0 8px;color:var(--accent);}
+  p,li{color:#D6D6DE;font-size:15px;}
+  ul{padding-left:22px;margin-top:6px;}
+  li{margin:5px 0;}
+  a{color:var(--accent);}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-top:14px;}
+  strong{color:var(--text);}
+</style>
+</head>
+<body>
+<main>
+  <h1>PocketCode — Privacy Policy</h1>
+  <div class="updated">Last updated: June 2026</div>
+
+  <p>PocketCode lets you control <strong>Claude Code</strong> running on your own computer from your phone. This policy explains what data is and isn't handled. In short: <strong>we don't collect, store, sell, or track your personal data.</strong></p>
+
+  <div class="card">
+    <h2>What we don't do</h2>
+    <ul>
+      <li>No accounts, no sign-up, no profiles.</li>
+      <li>No advertising, no analytics, no third-party trackers.</li>
+      <li>We never sell or share your data — there is no data to sell.</li>
+    </ul>
+  </div>
+
+  <h2>How your data flows</h2>
+  <p>PocketCode connects your phone to your own computer through a relay server. Everything you send — prompts, Claude's output, and any photos — is <strong>end-to-end encrypted</strong> (AES-256-GCM) on your phone and only decrypted on your computer.</p>
+  <ul>
+    <li>The encryption key is generated on your computer and shared only inside the QR code / link you scan. It is carried in the link's URL fragment, which is <strong>never sent to the relay server</strong>.</li>
+    <li>The relay only ever forwards <strong>encrypted, unreadable data</strong>. It cannot see your prompts, your code, or your photos.</li>
+    <li>Photos you attach are sent only to your own computer and are not stored by us.</li>
+  </ul>
+
+  <h2>Notifications (optional)</h2>
+  <p>If you turn on notifications, your browser's push subscription is sent (encrypted) to your own computer so it can alert you about approval requests and finished tasks. It is used only for that purpose and is not shared with anyone.</p>
+
+  <h2>On-device storage</h2>
+  <p>Your sessions, settings, and message history are stored locally on your device (in your browser) so the app remembers them between visits. You can clear them at any time from the app's Settings → "Clear all sessions & history."</p>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>Camera / Photos</strong> — only used when you choose to take or attach a photo to send to your computer.</li>
+    <li><strong>Notifications</strong> — only if you enable them, to deliver approval and task alerts.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>PocketCode is a developer tool and is not directed at children under 13.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the updated version will be posted at this URL.</p>
+
+  <h2>Contact</h2>
+  <p>Questions? Open an issue at <a href="https://github.com/aqsa-svg/pocketcode-app">github.com/aqsa-svg/pocketcode-app</a>.</p>
+
+  <p style="margin-top:28px;color:var(--muted);font-size:13px;">PocketCode is an independent project and is not affiliated with Anthropic.</p>
+</main>
+</body>
+</html>
